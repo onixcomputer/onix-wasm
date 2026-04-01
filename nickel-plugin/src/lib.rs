@@ -253,14 +253,37 @@ fn nix_args_to_nickel_record(args: &Value) -> nickel_lang_core::eval::value::Nic
 /// The full Nickel standard library is available during evaluation.
 /// The result is fully evaluated and converted to a Nix value (attrset, list,
 /// string, number, bool, or null) via direct term walk.
+/// Evaluate a Nickel source string.
+///
+/// Accepts either:
+///   - A plain string: `"{ x = 1 }"` (no import support)
+///   - An attrset: `{ source = "..."; base = ./path; }` (imports resolve
+///     relative to `base`)
 #[no_mangle]
 pub extern "C" fn evalNickel(arg: Value) -> Value {
-    let source = arg.get_string();
-    eval_nickel_source(&source)
+    use nix_wasm_rust::Type;
+    match arg.get_type() {
+        Type::String => {
+            let source = arg.get_string();
+            eval_nickel_source(&source, None)
+        }
+        Type::Attrs => {
+            let source_val = arg.get_attr("source")
+                .unwrap_or_else(|| nix_wasm_rust::panic("evalNickel: attrset arg requires 'source'"));
+            let base = arg.get_attr("base");
+            let source = source_val.get_string();
+            eval_nickel_source(&source, base)
+        }
+        _ => nix_wasm_rust::panic("evalNickel: expected string or attrset"),
+    }
 }
 
-fn eval_nickel_source(source: &str) -> Value {
-    let (cache, pos_table) = get_prepared_cache(Arc::new(NoopSourceIO));
+fn eval_nickel_source(source: &str, base_path: Option<Value>) -> Value {
+    let io: Arc<dyn SourceIO> = match base_path {
+        Some(bp) => Arc::new(WasmHostIO { base_path: bp }),
+        None => Arc::new(NoopSourceIO),
+    };
+    let (cache, pos_table) = get_prepared_cache(io);
     eval_with_cache(source, cache, pos_table)
 }
 
@@ -438,8 +461,9 @@ pub extern "C" fn evalNickelWith(arg: Value) -> Value {
     let args_val = arg
         .get_attr("args")
         .unwrap_or_else(|| nix_wasm_rust::panic("evalNickelWith: missing 'args' attribute"));
+    let base = arg.get_attr("base");
 
     let user_source = source_val.get_string();
     let args_record = nix_args_to_nickel_record(&args_val);
-    eval_nickel_apply_source(&user_source, args_record, None)
+    eval_nickel_apply_source(&user_source, args_record, base)
 }

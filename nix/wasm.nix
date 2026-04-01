@@ -41,6 +41,17 @@
       function = "evalNickel";
     } str;
 
+  # Like evalNickel but with import resolution. The source can contain
+  # `import "..."`; imports resolve relative to `base`.
+  #
+  # Usage: wasm.evalNickelImport ''import "foo.ncl"'' ./.
+  evalNickelImport =
+    source: base:
+    builtins.wasm {
+      path = "${plugins}/nickel_plugin.wasm";
+      function = "evalNickel";
+    } { inherit source base; };
+
   # Evaluate a Nickel file from a Nix path, returning the result as a Nix value.
   # The file is read via the host WASM ABI (not std::fs).
   # Relative `import` statements are supported — imported files are resolved
@@ -92,6 +103,18 @@
         inherit source;
         inherit args;
       };
+
+  # Like evalNickelWith but with import resolution.
+  #
+  # Usage: wasm.evalNickelWithImport source { x = 41; } ./.
+  evalNickelWithImport =
+    source: args: base:
+    builtins.wasm
+      {
+        path = "${plugins}/nickel_plugin.wasm";
+        function = "evalNickelWith";
+      }
+      { inherit source args base; };
 
   # Parse an INI string into a nested attrset (section → key → value).
   fromINI =
