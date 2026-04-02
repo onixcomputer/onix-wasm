@@ -125,7 +125,13 @@ fn eval_with_cache(source: &str, cache: CacheHub, pos_table: PosTable) -> Value 
         .get_owned(main_id)
         .unwrap_or_else(|| nix_wasm_rust::panic("nickel: prepared term not found in cache"));
 
-    // Create VM — mk_eval_env reads stdlib from TermCache — and evaluate
+    // Create VM — mk_eval_env reads stdlib from TermCache — and evaluate.
+    //
+    // We use eval_full_for_export (deep force with not_exported skipping).
+    // This forces the result deeply, applying all pending contracts.
+    //
+    // For string-eval (no function application), this is safe because
+    // there are no function parameter record contracts in the closure.
     let value = VirtualMachine::new(&mut vm_ctxt)
         .eval_full_for_export_closure(prepared.into())
         .unwrap_or_else(|e| nix_wasm_rust::panic(&format!("nickel eval error: {e:?}")));
@@ -423,7 +429,7 @@ fn eval_nickel_apply_source(
         arg: args,
     }));
 
-    // Evaluate
+    // Evaluate the function application with deep force.
     let value = nickel_lang_core::eval::VirtualMachine::new(&mut vm_ctxt)
         .eval_full_for_export_closure(app.into())
         .unwrap_or_else(|e| nix_wasm_rust::panic(&format!("nickel eval error: {e:?}")));
