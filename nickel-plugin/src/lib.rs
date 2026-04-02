@@ -200,8 +200,13 @@ fn nickel_to_nix(value: &nickel_lang_core::eval::value::NickelValue) -> Value {
 /// Data types (string, int, float, bool, null) become native Nickel values.
 /// Attrsets and lists are recursed into so that data-only structures can be
 /// destructured on the Nickel side (backward compat with the old source-text
-/// approach). Functions and paths become ForeignId(value_id as u64) -- opaque
-/// handles that nickel_to_nix recovers on the way out.
+/// approach). Functions, paths, and strings with context become
+/// ForeignId(value_id as u64) -- opaque handles that nickel_to_nix recovers
+/// on the way out.
+///
+/// Strings with Nix string context (store-path references, derivation
+/// outputs) must remain opaque to preserve dependency tracking. Plain
+/// strings without context become native Nickel strings as before.
 ///
 /// get_type() is called on every value to classify it. For functions/paths
 /// this is the ONLY host ABI call -- no further inspection occurs.
@@ -220,7 +225,17 @@ fn nix_to_nickel(nix_val: &Value) -> nickel_lang_core::eval::value::NickelValue 
                 .unwrap_or_else(|_| nix_wasm_rust::panic("nix_to_nickel: non-finite float"));
             NickelValue::number_posless(n)
         }
-        Type::String => NickelValue::string_posless(nix_val.get_string()),
+        Type::String => {
+            if nix_val.has_context() {
+                // Store-path context is a Nix concept with no Nickel equivalent.
+                // Treat the same as functions/paths: opaque ForeignId handle.
+                // nickel_to_nix recovers the original string (with context) via
+                // Value::from_raw.
+                NickelValue::foreign_id_posless(nix_val.raw_id() as u64)
+            } else {
+                NickelValue::string_posless(nix_val.get_string())
+            }
+        }
         Type::Attrs => {
             let attrs = nix_val.get_attrset();
             let field_values: Vec<(LocIdent, NickelValue)> = attrs
@@ -238,6 +253,7 @@ fn nix_to_nickel(nix_val: &Value) -> nickel_lang_core::eval::value::NickelValue 
         }
         // Functions, paths: opaque handle. get_type() was the only call.
         // nickel_to_nix recovers the original Nix value via Value::from_raw.
+        // (Strings with context are also handled as ForeignId above.)
         Type::Function | Type::Path => NickelValue::foreign_id_posless(nix_val.raw_id() as u64),
     }
 }
