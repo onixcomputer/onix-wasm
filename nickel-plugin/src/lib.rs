@@ -237,6 +237,18 @@ fn nix_to_nickel(nix_val: &Value) -> nickel_lang_core::eval::value::NickelValue 
             }
         }
         Type::Attrs => {
+            // Derivations (type = "derivation") are opaque Nix values with
+            // outPath, drvPath, meta, passthru, etc. Recursing into them is
+            // expensive and pointless — Nickel never inspects derivation
+            // internals. get_attr("type") is a single hash lookup; it does
+            // NOT enumerate the attrset.
+            if let Some(type_val) = nix_val.get_attr("type") {
+                if matches!(type_val.get_type(), Type::String)
+                    && type_val.get_string() == "derivation"
+                {
+                    return NickelValue::foreign_id_posless(nix_val.raw_id() as u64);
+                }
+            }
             let attrs = nix_val.get_attrset();
             let field_values: Vec<(LocIdent, NickelValue)> = attrs
                 .iter()
