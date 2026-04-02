@@ -132,6 +132,61 @@ impl Value {
         }
     }
 
+    pub fn has_context(&self) -> bool {
+        extern "C" {
+            fn has_context(value: ValueId) -> i32;
+        }
+        unsafe { has_context(self.0) != 0 }
+    }
+
+    pub fn get_string_context(&self) -> Vec<String> {
+        extern "C" {
+            fn get_string_context_count(value: ValueId) -> u32;
+            fn copy_string_context(value: ValueId, idx: u32, ptr: *mut u8, max_len: u32) -> u32;
+        }
+        unsafe {
+            let count = get_string_context_count(self.0);
+            let mut result = Vec::with_capacity(count as usize);
+            for i in 0..count {
+                // Optimistically try a stack buffer.
+                let mut buf = [0u8; 256];
+                let len = copy_string_context(self.0, i, buf.as_mut_ptr(), buf.len() as u32);
+                if len as usize > buf.len() {
+                    // Retry with a heap buffer of the right size.
+                    let mut buf = vec![0u8; len as usize];
+                    let len2 = copy_string_context(self.0, i, buf.as_mut_ptr(), buf.len() as u32);
+                    assert!(len2 == len);
+                    result.push(String::from_utf8(buf).expect("context element should be UTF-8"));
+                } else {
+                    result.push(
+                        String::from_utf8(buf[..len as usize].to_vec())
+                            .expect("context element should be UTF-8"),
+                    );
+                }
+            }
+            result
+        }
+    }
+
+    pub fn make_string_with_context(s: &str, context: &[&str]) -> Value {
+        extern "C" {
+            fn make_string_with_context(
+                str_ptr: *const u8,
+                str_len: usize,
+                ctx_ptr: *const (u32, u32),
+                ctx_count: usize,
+            ) -> Value;
+        }
+        // Build the (ptr, len) array that the host expects.
+        let entries: Vec<(u32, u32)> = context
+            .iter()
+            .map(|elem| (elem.as_ptr() as u32, elem.len() as u32))
+            .collect();
+        unsafe {
+            make_string_with_context(s.as_ptr(), s.len(), entries.as_ptr(), entries.len())
+        }
+    }
+
     /// Create a new path value relative to this one, within the same source tree.
     pub fn make_path(&self, rel: &str) -> Value {
         extern "C" {
