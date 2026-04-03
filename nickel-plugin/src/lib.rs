@@ -429,18 +429,10 @@ fn eval_nickel_apply_source(
         arg: args,
     }));
 
-    // Evaluate the function application to WHNF.
-    //
-    // We avoid eval_full_for_export_closure (deep force) because it wraps
-    // the result in UnaryOp::Force which traverses the entire closure
-    // environment. When the result references imported modules that use
-    // std.record.values (e.g., exports.ncl's first_result), the internal
-    // $dict_dyn contract in std.record.values gets caught in Force's
-    // environment traversal, causing infinite recursion.
-    //
-    // Instead, WHNF strips the function application and returns the
-    // top-level result. Then nickel_to_nix_forcing evaluates each field
-    // individually via the VM, avoiding blanket deep-forcing.
+    // Evaluate the function application to WHNF, then convert each
+    // field individually. The WHNF + per-field approach avoids
+    // eval_full_for_export_closure's blanket UnaryOp::Force which
+    // traverses the entire closure environment.
     let whnf_result = nickel_lang_core::eval::VirtualMachine::new(&mut vm_ctxt)
         .eval_closure(app.into())
         .unwrap_or_else(|e| nix_wasm_rust::panic(&format!("nickel eval error: {e:?}")));

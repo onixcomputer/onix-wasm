@@ -592,7 +592,6 @@ version = "0.1.0"
 dependencies = [
  "nickel-lang-core",
  "nix-wasm-rust",
- "serde_json",
 ]
 
 [[package]]

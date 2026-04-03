@@ -99,10 +99,52 @@ works. For ForeignId values (derivations, paths), they need to stay as
 ForeignId — so a hybrid approach: serialize data args to source, keep
 ForeignId args as Term::App arguments.
 
+## Approaches Tried (Phase 2)
+
+4. **Pre-evaluate args before Term::App**: Called `vm.eval(args)` before
+   building the App term. No effect — args are already concrete values,
+   and contracts are attached by the function application, not the args.
+
+5. **Manual beta-reduction via Term::Let**: Evaluated source to WHNF,
+   extracted Fun(param, body), built `let param = args in body` to
+   bypass App entirely. Still fails — `$dict_dyn` comes from the
+   IMPORTED Nickel modules, not from function application.
+
+6. **Replace std.record.fields with std.record.to_array in exports.ncl**:
+   `std.record.to_array` internally calls `std.record.fields` which
+   applies `$dict_dyn`. Same infinite recursion.
+
+## Revised Root Cause
+
+The `$dict_dyn` contract is NOT attached by function application or
+arg binding. It's attached by Nickel's standard library. ALL record
+introspection functions (`std.record.fields`, `std.record.values`,
+`std.record.to_array`) eventually call the typed stdlib wrapper for
+`fields` which has the annotation `{_ : Dyn ; r} -> Array String`.
+This annotation generates a `$dict_dyn` pending contract on the
+record argument.
+
+The raw primop `%record/fields%` doesn't attach contracts, but it's
+not available in user Nickel code — only in stdlib internal code.
+
+## Remaining Path: Approach C (patch nickel-lang-core)
+
+Two options within Approach C:
+
+**C1: Remove $dict_dyn from std.record.fields type annotation.**
+Change the stdlib's `fields` function to not generate the `{_ : Dyn}`
+contract. This is safe because `fields` only reads keys, never
+validates field values. Risk: may affect Nickel's contract semantics
+for user code that depends on `fields` applying `{_ : Dyn}`.
+
+**C2: Make $dict_dyn skip ForeignId values.** When `$dict_dyn`
+validates a record field and encounters a ForeignId, skip validation
+(ForeignId is opaque — can't recurse into it). This prevents the
+cycle without changing the contract semantics for normal Nickel code.
+
 ## Risks
 
-- Pre-evaluation might not prevent contract attachment — Nickel's App
-  evaluation might always attach contracts regardless of the args' state.
-- Source serialization falls back to the old `nix_to_nickel_source` path
-  which was deprecated for good reasons (expensive, loses context).
-- ForeignId hybrid approach adds complexity to the call path.
+- C1 changes stdlib contract semantics — needs testing
+- C2 requires vendored Nickel change that must be maintained across
+  Nickel version upgrades
+- Both require rebuilding the WASM stdlib cache
