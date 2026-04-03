@@ -19,3 +19,5 @@
 {"text":"lets see if our fix worked for onix-modules","timestamp":1775186577191}
 {"text":"lets explore this","timestamp":1775187120988}
 {"text":"what would the best fix be? im open to any, just want to make this durable, nonfragile, and correct","timestamp":1775187955966}
+{"text":"isnt cachehub something we added to nickel? should that be changed?","timestamp":1775188362491}
+{"text":"nickel-wasm is our fork. you can check the upstream, unmodded nickel code in ../nickel/","timestamp":1775188471960}

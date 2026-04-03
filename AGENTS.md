@@ -31,7 +31,8 @@
 - dev-dependencies in nickel-wasm core/Cargo.toml are stripped by default.nix postUnpack (nickel-lang-utils not vendored)
 - Also fixed: $array and $array_dyn had same %typeof% guard issue — removed in same pattern
 - Remaining onix-modules failures (16/35): NOT from %typeof% guards, NOT from merge_contract directly
-- Root cause: the shim does `validated = mod.interface.roles.X & user_settings` (merge with contracts) in the SAME evaluation as `mod.impl { settings = validated, upstream = ..., ... }`. The merge attaches pending contracts from the interface to `validated`. When `impl` forces those contracts while also forcing through stdlib helpers (exports.first_result etc.), both paths hit the same CacheHub thunks → blackhole
-- Confirmed: simplified reproduction without the `validated` merge works fine
-- Best fix: split settings validation into a separate WASM call. Serialize validated settings back to Nix, then pass as plain literal args to the impl call. This isolates CacheHub state between the two evaluation phases
-- Alternative: pre-force validated settings to Nix within the same WASM call before passing to impl (using nickel_to_nix round-trip)
+- Root cause: Nickel import resolution creates shared CacheIndex thunks. When onix.ncl is imported, accessing onix.exports triggers the exports.ncl import thunk. If another evaluation path (e.g., merging the consumer result with _lifecycle) also forces through that import chain, the second path hits a blackhole on the still-forcing import thunk
+- The validated merge, stdlib thunks, etc. are secondary — the PRIMARY shared state is import thunks in CacheHub
+- Confirmed: inlining the helper functions (no imports) works. Importing exports.ncl directly (not through onix.ncl) works. Only the onix.ncl bundle import triggers it
+- onix.ncl was a RecRecord (self-referencing fields like Port = contracts.Port). Fixed to use let-bindings. But the import thunk sharing remains
+- Best fix: restructure the shim to pass library functions as separate imports rather than bundled through onix.ncl. Or pre-resolve all imports in the shim preamble with individual let-bindings
