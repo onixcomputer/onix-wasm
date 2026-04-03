@@ -26,3 +26,6 @@
 - `$dict_dyn` became identity: `fun label value => 'Ok value`
 - The old `std.ncl` sed workaround (stripping `forall a. { _ : a }` type annotations) is no longer needed
 - Patch lives in nickel-wasm-vendor (../nickel-wasm, branch wasm-vendor)
+- CRITICAL: $record_contract must NOT wrap in 'Ok — %record/merge_contract% already wraps via MergeMode::Contract
+- To run integration tests: `cd ../nickel-wasm && nix shell nixpkgs#gcc -c bash -c 'PATH="$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin:$PATH" cargo test -p nickel-lang-core --test integration'`
+- dev-dependencies in nickel-wasm core/Cargo.toml are stripped by default.nix postUnpack (nickel-lang-utils not vendored)

@@ -71,7 +71,7 @@ The change per function:
 # After:
 "$record_contract" = fun record_contract =>
     fun label value =>
-      'Ok (%record/merge_contract% label value record_contract),
+      %record/merge_contract% label value record_contract,
 ```
 
 **`$record_type`** (line 236):

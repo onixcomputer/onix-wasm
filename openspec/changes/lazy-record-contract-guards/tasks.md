@@ -8,9 +8,11 @@
 
 ## Phase 2: Test in nickel-lang-core
 
-- [ ] Run existing integration tests in the vendored nickel-lang-core
-- [ ] Identify tests that assert contract blame for non-record arguments
-- [ ] Update those tests to expect primop type errors instead
+- [x] Run existing integration tests in the vendored nickel-lang-core (776/776 pass)
+- [x] Identify tests that assert contract blame for non-record arguments — none exist
+    (all record contract failure tests use actual records with wrong fields, not non-records)
+- [x] Fix: $record_contract must NOT wrap in 'Ok — %record/merge_contract% already wraps
+    (caught by 8 failing tests: custom_validator_fail, sequence, contracts, etc.)
 - [x] Add test: record contract on a record passes
 - [x] Add test: dict contract with concrete type still validates fields
 
