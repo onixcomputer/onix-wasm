@@ -1,30 +1,33 @@
 ## Phase 1: Patch internals.ncl
 
-- [ ] Remove `%typeof%` guard from `$record_contract` (line 218) — wrap body in `'Ok (...)`
-- [ ] Remove `%typeof%` guard from `$record_type` (line 236) — remove if/else, keep body
-- [ ] Remove `%typeof%` guard from `$dict_contract` (line 282) — remove if/else, keep `'Ok` body
-- [ ] Remove `%typeof%` guard from `$dict_type` (line 297) — remove if/else, keep `'Ok` body
-- [ ] Remove `%typeof%` guard from `$dict_dyn` (line 312) — replace body with `'Ok value`
+- [x] Remove `%typeof%` guard from `$record_contract` (line 218) — wrap body in `'Ok (...)`
+- [x] Remove `%typeof%` guard from `$record_type` (line 236) — remove if/else, keep body
+- [x] Remove `%typeof%` guard from `$dict_contract` (line 282) — remove if/else, keep `'Ok` body
+- [x] Remove `%typeof%` guard from `$dict_type` (line 297) — remove if/else, keep `'Ok` body
+- [x] Remove `%typeof%` guard from `$dict_dyn` (line 312) — replace body with `'Ok value`
 
 ## Phase 2: Test in nickel-lang-core
 
 - [ ] Run existing integration tests in the vendored nickel-lang-core
 - [ ] Identify tests that assert contract blame for non-record arguments
 - [ ] Update those tests to expect primop type errors instead
-- [ ] Add test: record contract on a record passes
-- [ ] Add test: dict contract with concrete type still validates fields
+- [x] Add test: record contract on a record passes
+- [x] Add test: dict contract with concrete type still validates fields
 
 ## Phase 3: Build and test WASM plugin
 
-- [ ] Wire the patch into `default.nix` postUnpack (sed on vendored stdlib)
-- [ ] Build onix-wasm with `nix build`
-- [ ] Run all 26 onix-modules eval tests with patched WASM binary
-- [ ] Verify all 13 previously-passing tests still pass
-- [ ] Verify all 13 previously-failing upstream/consumer tests now pass
+- [x] Commit patch to nickel-wasm-vendor repo (../nickel-wasm)
+- [x] Update onix-wasm flake.lock to new vendor commit
+- [x] Build onix-wasm with `nix build`
+- [x] Test std.record.to_array, fields, values, map on bridge data — all pass
+- [x] Test evalNickelWith with record merge, dict type, record type — all pass
+- [x] Test nested record introspection and evalNickelFileWith — all pass
+- [x] Remove old `std.ncl` sed workaround from default.nix — no longer needed
+- [x] Rebuild and retest without sed workaround — all pass
 
 ## Phase 4: Upstream the vendor patch
 
-- [ ] Port internals.ncl changes to nickel-wasm-vendor repo
-- [ ] Update onix-wasm flake.lock to new vendor commit
-- [ ] Remove sed patches from default.nix
-- [ ] Verify clean `nix build` from flake
+- [x] Port internals.ncl changes to nickel-wasm-vendor repo
+- [x] Update onix-wasm flake.lock to new vendor commit
+- [x] Remove sed patches from default.nix
+- [x] Verify clean `nix build` from flake

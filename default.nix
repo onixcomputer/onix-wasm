@@ -30,13 +30,6 @@ rustPlatform.buildRustPackage {
     substituteInPlace $sourceRoot/vendor/nickel-lang-parser/Cargo.toml \
       --replace-fail 'path = "../vector"'  'path = "../nickel-lang-vector"'
 
-    # Patch stdlib: remove {_ : a} type annotations from record introspection
-    # functions. These generate $dict_dyn contracts that cause infinite recursion
-    # when evaluating records from the WASM bridge (shared CacheHub state).
-    # to_array's type `forall a. { _ : a } -> ...` attaches $dict_dyn via the
-    # `{ _ : a }` dict type. Replace with untyped `Dyn -> Array Dyn`.
-    sed -i 's/: forall a\. { _ : a } -> Array { field : String, value : a }/: Dyn -> Array Dyn/' \
-      $sourceRoot/vendor/nickel-lang-core/stdlib/std.ncl
   '';
 
   CARGO_BUILD_TARGET = "wasm32-unknown-unknown";

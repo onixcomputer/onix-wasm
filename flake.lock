@@ -3,12 +3,10 @@
     "nickel-wasm-vendor": {
       "flake": false,
       "locked": {
-        "lastModified": 1773772610,
-        "narHash": "sha256-8uXksWVb/Mc60hJ60twpuSvWk65wYIi1p/0a5b+FPDw=",
-        "owner": "brittonr",
-        "repo": "nickel-wasm",
-        "rev": "7c3c2bb1e6c4e2a3b3e7d9ce5df863b944e8ca7d",
-        "type": "github"
+        "lastModified": 1775183730,
+        "narHash": "sha256-ZWdyQNu/+XeVU/gbM9wWUIGMwVQn57jiICT2YMakNaA=",
+        "path": "/home/brittonr/git/nickel-wasm",
+        "type": "path"
       },
       "original": {
         "owner": "brittonr",

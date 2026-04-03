@@ -18,9 +18,11 @@
 - `vendor/nickel-lang-core/`: Vendored Nickel evaluator (from nickel-wasm-vendor flake input)
 - `nix/wasm.nix`: Nix wrappers that call builtins.wasm with the plugin paths
 
-## Infinite Recursion Bug (active)
-- $dict_dyn contract on records causes infinite recursion when Nickel stdlib record introspection functions operate on records from the WASM bridge
-- Root cause is in the pre-compiled Nickel stdlib, not in function application or user code
-- All approaches tried so far (pre-eval args, Let instead of App, patching to_array type, rewriting exports.ncl) don't work
-- The $dict_dyn is propagated through the stdlib's internal record namespace field access pattern
-- Next: need to understand how the stdlib record module exports carry $dict_dyn and either patch the evaluator or restructure the Nickel module pipeline
+## Infinite Recursion Bug (FIXED)
+- Root cause: five record contract functions in `stdlib/internals.ncl` eagerly force args via `%typeof% value == 'Record` before delegating to inner primops
+- `%typeof%` is a UnaryOp that forces to WHNF → hits shared CacheHub thunks → blackhole → spurious InfiniteRecursion
+- Fix: removed `%typeof%` guards from `$record_contract`, `$record_type`, `$dict_contract`, `$dict_type`, `$dict_dyn`
+- Each inner primop already validates record shape via `mk_type_error!("Record")`
+- `$dict_dyn` became identity: `fun label value => 'Ok value`
+- The old `std.ncl` sed workaround (stripping `forall a. { _ : a }` type annotations) is no longer needed
+- Patch lives in nickel-wasm-vendor (../nickel-wasm, branch wasm-vendor)
