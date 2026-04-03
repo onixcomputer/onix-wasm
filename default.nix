@@ -30,6 +30,9 @@ rustPlatform.buildRustPackage {
     substituteInPlace $sourceRoot/vendor/nickel-lang-parser/Cargo.toml \
       --replace-fail 'path = "../vector"'  'path = "../nickel-lang-vector"'
 
+    # Strip dev-dependencies (nickel-lang-utils etc.) — not vendored for wasm builds
+    sed -i '/^\[dev-dependencies\]/,/^\[/{/^\[dev-dependencies\]/d;/^\[/!d}' \
+      $sourceRoot/vendor/nickel-lang-core/Cargo.toml
   '';
 
   CARGO_BUILD_TARGET = "wasm32-unknown-unknown";

@@ -3,8 +3,8 @@
     "nickel-wasm-vendor": {
       "flake": false,
       "locked": {
-        "lastModified": 1775183730,
-        "narHash": "sha256-ZWdyQNu/+XeVU/gbM9wWUIGMwVQn57jiICT2YMakNaA=",
+        "lastModified": 1775185293,
+        "narHash": "sha256-F9Pmuj3oE5tIaeISvdJzIc+5iUsYROAIiT+rPZCSbjc=",
         "path": "/home/brittonr/git/nickel-wasm",
         "type": "path"
       },
