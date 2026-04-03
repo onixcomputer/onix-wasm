@@ -4,9 +4,11 @@
       "flake": false,
       "locked": {
         "lastModified": 1775185293,
-        "narHash": "sha256-F9Pmuj3oE5tIaeISvdJzIc+5iUsYROAIiT+rPZCSbjc=",
-        "path": "/home/brittonr/git/nickel-wasm",
-        "type": "path"
+        "narHash": "sha256-H8GfIs088DyM4iu0THMlMJlnhxt48ECXxhxuuaMDVs4=",
+        "owner": "brittonr",
+        "repo": "nickel-wasm",
+        "rev": "104d4a6206721efddf32aa037d4797e283192deb",
+        "type": "github"
       },
       "original": {
         "owner": "brittonr",
