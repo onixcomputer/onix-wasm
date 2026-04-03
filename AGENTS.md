@@ -8,7 +8,8 @@
 
 ## Testing
 - Need onix nix fork (onixcomputer/nix at /home/brittonr/git/nix) for `builtins.wasm` + string context ABI
-- Onix nix binary: `/nix/store/8rlz2v16wxv1xqxad800wjvgpj9gvdl5-nix-2.33.3/bin/nix`
+- Onix nix binary: `/nix/store/59g5z7fgc271imf1fz2iz0rsmsmdw06z-nix-2.33.3/bin/nix`
+- Previous binary (no ThrownError fix): `/nix/store/8rlz2v16wxv1xqxad800wjvgpj9gvdl5-nix-2.33.3/bin/nix`
 - System nix has `builtins.wasm` but NOT `env::has_context` host import
 - Run eval tests: `$NIX_ONIX eval --impure --expr '...' --extra-experimental-features 'nix-command wasm-builtin'`
 
@@ -35,3 +36,9 @@
 - Fix: rename shim let-bindings to avoid shadowing: `let _upstream = args.upstream in ... { upstream = _upstream }`
 - Same issue affects any `{ fieldname = fieldname }` pattern in generated Nickel source
 - Also fixed onix.ncl RecRecord (let-binding prefix trick) for the same class of bug
+
+## Eval Tests (38/38 passing)
+- All eval tests pass with onix nix fork 854b77d (ThrownError fix for tryEval + WASM)
+- Test runner: `onix-modules/tests/run-eval-tests.sh` (glob filter, list mode, XFAIL support)
+- nix fork fix: prim_wasm catch block re-throws as ThrownError (subclass of AssertionError) so tryEval catches it
+- Extra fix discovered: evalService's interfaceMeta extraction must selectively pull providers+packages, not eval full interface (EnumVariant fields like lifecycle controllers can't cross WASM boundary via nickel_to_nix)

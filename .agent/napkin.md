@@ -13,10 +13,18 @@
 - Replacing std.record.fields with std.record.to_array: to_array calls fields internally
 - Patching to_array's type annotation in stdlib std.ncl: stdlib is pre-compiled into WASM binary, and the $dict_dyn propagation comes from a deeper mechanism than function type annotations
 
+## Patterns That Work
+- Prefixing let-bindings with `_` to avoid RecRecord self-reference: `let _root = ... in { root = _root }`
+- Extracting nested `%{...}` expressions to let-bindings to avoid quoting issues in Nickel string interpolation
+- Selectively extracting interface fields in evalService (only providers+packages) to avoid EnumVariant WASM conversion failures
+
 ## Domain Notes
+- evalService reads mod.interface through WASM to get providers/packages — must NOT eval the full interface because enum variants (lifecycle controllers) can't convert to Nix via nickel_to_nix
+- onix-modules eval tests live at tests/integration/eval-tests.nix, run with onix nix fork
+- All 38 eval tests pass with nix fork 854b77d (ThrownError fix)
 - System nix: /run/current-system/sw/bin/nix (2.33.3, HAS builtins.wasm but NOT string context ABI)
-- Onix nix fork: built from /home/brittonr/git/nix (onixcomputer/nix), has string context ABI. Build: `nix build .#nix-cli`
-- Onix nix binary: /nix/store/8rlz2v16wxv1xqxad800wjvgpj9gvdl5-nix-2.33.3/bin/nix
+- Onix nix fork: built from /home/brittonr/git/nix (onixcomputer/nix), has string context ABI + ThrownError. Build: `nix build .#nix-cli`
+- Onix nix binary: /nix/store/59g5z7fgc271imf1fz2iz0rsmsmdw06z-nix-2.33.3/bin/nix
 - WASM vendor source: /nix/store/y8a929nfr9wggps03iczqb3adbw73vcm-7c3c2bb1e6c4e2a3b3e7d9ce5df863b944e8ca7d.tar.gz (from nickel-wasm-vendor flake input)
 - Dev build: `nix develop --command bash -c 'cargo check --target wasm32-unknown-unknown -p nickel-plugin'` (needs `rustup toolchain install stable --force` first to fix stale ld wrappers)
 - Nix build: `nix build` (uses default.nix with postUnpack for vendor)
