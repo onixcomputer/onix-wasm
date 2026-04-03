@@ -1,53 +1,108 @@
 ## Context
 
-`eval_full_for_export_closure` wraps the result term in `UnaryOp::Force`
-which deep-evaluates the entire term tree including all pending contracts
-in the closure environment. For function-style modules, this means
-evaluating the record contract on `fun { onix } =>` which recurses
-through the library's re-exports.
+Nickel modules evaluated via the WASM bridge hit `InfiniteRecursion` when
+the result references function arguments that were passed through
+`Term::App`. The recursion involves `$dict_dyn` — Nickel's internal
+dictionary contract that validates record fields.
 
-The `nickel_to_nix` function already does its own recursive walk via
-`content_ref()` dispatch, forcing each value to WHNF individually. The
-deep `Force` is redundant — it forces everything eagerly before
-`nickel_to_nix` even starts, and that's where the recursion happens.
+## Root Cause (fully diagnosed)
 
-## Decision
+The recursion has nothing to do with `std.record.values` specifically,
+nor with `eval_full_for_export_closure` vs `eval_closure`. The cause is
+in how Nickel's evaluator handles `Term::App(fn, args)`:
 
-Two-part fix:
+1. `eval_nickel_apply_source` builds `Term::App(parsed_fn, args_record)`
+   where `args_record` is the Nix arguments converted via `nix_to_nickel`.
 
-**Part A (onix-modules mkPreamble):** Change module convention from
-`fun { onix } =>` to `fun onix =>` and outer wrapper from
-`fun { artifacts, upstream, ... } =>` to `fun args => let upstream = args.upstream in ...`.
-This eliminates record pattern contracts on function parameters. Done.
+2. When Nickel evaluates the `App`, it applies the function's parameter
+   contracts to the args record. Even `fun args =>` (no destructuring)
+   adds a `Dyn` contract. The contracts become **pending contracts** on
+   the args record's fields.
 
-**Part B (nickel-plugin eval strategy):** Replace `eval_full_for_export_closure`
-with `eval_closure` (WHNF) in `eval_nickel_apply_source`. Then extend
-`nickel_to_nix` to handle `Thunk`, `RecRecord`, and `Closurize` variants
-by recursing into them. `eval_with_cache` (string eval, no function
-application) can keep using `eval_full_for_export_closure` since it has
-no function closure to recurse into.
+3. The result record closes over these args (e.g., `upstream` is used
+   inside the impl). When any stdlib function forces a field from the
+   args — `std.record.fields`, `std.record.values`, `std.record.to_array`,
+   or even simple field access chains — the pending `$dict_dyn` contract
+   fires.
 
-The WHNF approach is needed because `std.record.values` (used by
-`exports.ncl`'s `first_result` helper) applies an internal `$dict_dyn`
-contract. Deep force traverses through this contract into the upstream
-record, which is a Nix-bridge value, causing infinite recursion.
+4. `$dict_dyn` recursively validates all fields in the record. For nested
+   records (like `upstream.producer.instance.role.machine = exports`),
+   this creates a deep evaluation chain that eventually hits the same
+   pending contract again through the closure environment → infinite
+   recursion.
 
-Key: `content_ref()` on a `NickelValue` forces the value to WHNF (head
-normal form), which resolves thunks, applies pending contracts for that
-specific field, and returns a `ValueContentRef` variant. This is sufficient
-for `nickel_to_nix` to dispatch on the type and recurse into records/arrays.
+**Key evidence:** A standalone test with inlined helpers (no imports) and
+the SAME data works fine. The same test with imports fails. The import
+chain creates shared CacheHub state that changes how pending contracts
+propagate through the evaluation environment.
 
-The `subst` call in `eval_full_for_export_closure` (which substitutes free
-variables for export) is not needed because `nickel_to_nix` never inspects
-variable names — it only looks at fully-evaluated values via `content_ref()`.
+## Approaches Tried
+
+1. **Record pattern removal** (Part A, done): Changed `fun { onix } =>`
+   to `fun onix =>` and `fun { artifacts, upstream, .. } =>` to
+   `fun args =>`. Eliminated record pattern contracts. Result: 13/26
+   tests pass (all non-upstream tests). Upstream tests still fail.
+
+2. **WHNF + per-field forcing**: Replaced `eval_full_for_export_closure`
+   with `eval_closure`, added `nickel_to_nix_forcing` that calls
+   `vm.eval(field)` for each field. Result: per-field eval still triggers
+   $dict_dyn when evaluating fields that reference upstream.
+
+3. **Replace std.record.values with std.record.fields + field access**:
+   Rewrote `exports.ncl` to avoid `std.record.values`. Result: `$dict_dyn`
+   still fires from `std.record.fields` — the contract is on the args
+   record, not specific to `values`.
+
+## Decision (next session)
+
+**Pre-evaluate args before Term::App.** The args record from
+`nix_args_to_nickel_record` is a plain `RecordData` with no contracts.
+But `Term::App` evaluation attaches contracts from the function's parameter
+type. If we pre-evaluate the args via `vm.eval(args)` before building
+the `App` term, the args become fully-resolved values that the function
+application can't attach new pending contracts to.
+
+Implementation:
+```rust
+// Pre-evaluate args to strip any lazy structure
+let pre_args = VirtualMachine::new(&mut vm_ctxt)
+    .eval(args)
+    .unwrap();
+
+// Build App with pre-evaluated args
+let app = NickelValue::term_posless(Term::App(AppData {
+    head: parsed_fn.into(),
+    arg: pre_args,
+}));
+
+// Now eval_full_for_export_closure can deep-force safely
+let value = VirtualMachine::new(&mut vm_ctxt)
+    .eval_full_for_export_closure(app.into())
+    .unwrap();
+```
+
+If pre-evaluation doesn't prevent contract attachment (because Nickel
+attaches contracts to the App result, not the args input), the
+alternative is:
+
+**Build the source to avoid function application entirely.** Instead of
+`eval_nickel_apply_source` building `Term::App(fn, args)`, generate
+Nickel source that binds args via `let`:
+```
+let args = <serialized args> in
+<user source applied to args>
+```
+This requires serializing the args record to Nickel source text, which
+`nix_to_nickel_source` already does (though it was deprecated in favor
+of ForeignId). For simple args (strings, numbers, plain records), this
+works. For ForeignId values (derivations, paths), they need to stay as
+ForeignId — so a hybrid approach: serialize data args to source, keep
+ForeignId args as Term::App arguments.
 
 ## Risks
 
-- If a Nickel expression returns a lazy thunk at the top level (not a value),
-  `eval_closure` might not force it far enough for `nickel_to_nix` to see
-  a concrete type. Mitigation: `eval_closure` evaluates to WHNF which should
-  reveal the outermost constructor (Record, Array, String, etc.).
-- `not_exported` fields: `eval_full_for_export_closure` passed
-  `ignore_not_exported: true` to skip them during force. With the new
-  approach, `nickel_to_nix` calls `iter_serializable()` which already
-  skips `not_exported` fields. No behavior change.
+- Pre-evaluation might not prevent contract attachment — Nickel's App
+  evaluation might always attach contracts regardless of the args' state.
+- Source serialization falls back to the old `nix_to_nickel_source` path
+  which was deprecated for good reasons (expensive, loses context).
+- ForeignId hybrid approach adds complexity to the call path.
