@@ -31,8 +31,7 @@
 - dev-dependencies in nickel-wasm core/Cargo.toml are stripped by default.nix postUnpack (nickel-lang-utils not vendored)
 - Also fixed: $array and $array_dyn had same %typeof% guard issue — removed in same pattern
 - Remaining onix-modules failures (16/35): NOT from %typeof% guards, NOT from merge_contract directly
-- Root cause: Nickel import resolution creates shared CacheIndex thunks. When onix.ncl is imported, accessing onix.exports triggers the exports.ncl import thunk. If another evaluation path (e.g., merging the consumer result with _lifecycle) also forces through that import chain, the second path hits a blackhole on the still-forcing import thunk
-- The validated merge, stdlib thunks, etc. are secondary — the PRIMARY shared state is import thunks in CacheHub
-- Confirmed: inlining the helper functions (no imports) works. Importing exports.ncl directly (not through onix.ncl) works. Only the onix.ncl bundle import triggers it
-- onix.ncl was a RecRecord (self-referencing fields like Port = contracts.Port). Fixed to use let-bindings. But the import thunk sharing remains
-- Best fix: restructure the shim to pass library functions as separate imports rather than bundled through onix.ncl. Or pre-resolve all imports in the shim preamble with individual let-bindings
+- REAL root cause (confirmed): `{ upstream = upstream }` in the shim creates a self-referencing RecRecord. Nickel's parser resolves the RHS `upstream` as the record's own field, not the outer let-binding. The RecRecord WHNF evaluation blackholes the record, and field forcing re-enters it → InfiniteRecursion
+- Fix: rename shim let-bindings to avoid shadowing: `let _upstream = args.upstream in ... { upstream = _upstream }`
+- Same issue affects any `{ fieldname = fieldname }` pattern in generated Nickel source
+- Also fixed onix.ncl RecRecord (let-binding prefix trick) for the same class of bug
