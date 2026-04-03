@@ -1,3 +1,6 @@
 {"text":"continue with openspec/changes/fix-infinite-recursion/","timestamp":1775177955794}
 {"text":"wait what is nix-wasm?","timestamp":1775179716479}
 {"text":"arent we using brittonr/git/nix not brittonr/git/nix-wasm?","timestamp":1775179751723}
+{"text":"write an openspec in our vendored nickel repo. we want to make the _correct_ change even if it takes longer","timestamp":1775181243655}
+{"text":"is this antitehtical to nickel? are there drawbacks of doing this","timestamp":1775181789491}
+{"text":"yes","timestamp":1775181914506}
