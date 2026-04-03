@@ -29,3 +29,5 @@
 - CRITICAL: $record_contract must NOT wrap in 'Ok — %record/merge_contract% already wraps via MergeMode::Contract
 - To run integration tests: `cd ../nickel-wasm && nix shell nixpkgs#gcc -c bash -c 'PATH="$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin:$PATH" cargo test -p nickel-lang-core --test integration'`
 - dev-dependencies in nickel-wasm core/Cargo.toml are stripped by default.nix postUnpack (nickel-lang-utils not vendored)
+- Also fixed: $array and $array_dyn had same %typeof% guard issue — removed in same pattern
+- Remaining onix-modules failures (16/35) are from %record/merge_contract% forcing through shared CacheHub stdlib thunks — deeper than the %typeof% guards, requires evaluator-level fix
