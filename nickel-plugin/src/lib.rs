@@ -429,12 +429,110 @@ fn eval_nickel_apply_source(
         arg: args,
     }));
 
-    // Evaluate the function application with deep force.
-    let value = nickel_lang_core::eval::VirtualMachine::new(&mut vm_ctxt)
-        .eval_full_for_export_closure(app.into())
+    // Evaluate the function application to WHNF.
+    //
+    // We avoid eval_full_for_export_closure (deep force) because it wraps
+    // the result in UnaryOp::Force which traverses the entire closure
+    // environment. When the result references imported modules that use
+    // std.record.values (e.g., exports.ncl's first_result), the internal
+    // $dict_dyn contract in std.record.values gets caught in Force's
+    // environment traversal, causing infinite recursion.
+    //
+    // Instead, WHNF strips the function application and returns the
+    // top-level result. Then nickel_to_nix_forcing evaluates each field
+    // individually via the VM, avoiding blanket deep-forcing.
+    let whnf_result = nickel_lang_core::eval::VirtualMachine::new(&mut vm_ctxt)
+        .eval_closure(app.into())
         .unwrap_or_else(|e| nix_wasm_rust::panic(&format!("nickel eval error: {e:?}")));
 
-    nickel_to_nix(&value)
+    nickel_to_nix_forcing(&mut vm_ctxt, whnf_result.value)
+}
+
+/// Convert a Nickel value to a Nix value, forcing each field individually
+/// through the VM. Used after WHNF evaluation of function applications to
+/// avoid the blanket deep-force that causes infinite recursion.
+///
+/// For each sub-value, calls `vm.eval(value)` to force it to WHNF, then
+/// dispatches on the result type. Records and arrays recurse into their
+/// elements. This is equivalent to deep evaluation but without
+/// `UnaryOp::Force`'s environment traversal.
+fn nickel_to_nix_forcing(
+    vm_ctxt: &mut nickel_lang_core::eval::VmContext<CacheHub, nickel_lang_core::eval::cache::CacheImpl>,
+    value: nickel_lang_core::eval::value::NickelValue,
+) -> Value {
+    use nickel_lang_core::eval::value::{Container, NickelValue, ValueContentRef};
+    use nickel_lang_core::term::{IsInteger, RoundingFrom, RoundingMode};
+
+    // Force to WHNF — resolves thunks, variables, and pending contracts
+    // for this specific value without traversing the full environment.
+    let forced = nickel_lang_core::eval::VirtualMachine::new(vm_ctxt)
+        .eval(value)
+        .unwrap_or_else(|e| nix_wasm_rust::panic(&format!("nickel eval error (forcing): {e:?}")));
+
+    match forced.content_ref() {
+        ValueContentRef::Null => Value::make_null(),
+        ValueContentRef::Bool(b) => Value::make_bool(b),
+        ValueContentRef::Number(n) => {
+            if n.is_integer() {
+                if let Ok(i) = i64::try_from(n) {
+                    return Value::make_int(i);
+                }
+            }
+            let f = f64::rounding_from(n, RoundingMode::Nearest).0;
+            Value::make_float(f)
+        }
+        ValueContentRef::String(s) => Value::make_string(s),
+        ValueContentRef::Array(Container::Empty) => Value::make_list(&[]),
+        ValueContentRef::Array(Container::Alloc(arr)) => {
+            let items: Vec<NickelValue> = arr.array.iter().cloned().collect();
+            let nix_items: Vec<Value> = items
+                .into_iter()
+                .map(|v| nickel_to_nix_forcing(vm_ctxt, v))
+                .collect();
+            Value::make_list(&nix_items)
+        }
+        ValueContentRef::Record(Container::Empty) => Value::make_attrset(&[]),
+        ValueContentRef::Record(Container::Alloc(record)) => {
+            // Collect field names and values. iter_serializable skips not_exported.
+            let field_data: Vec<(String, NickelValue)> = record
+                .iter_serializable()
+                .map(|entry| {
+                    let (id, val) = entry.unwrap_or_else(|e| {
+                        nix_wasm_rust::panic(&format!(
+                            "nickel_to_nix_forcing: missing field definition for `{}`",
+                            e.id
+                        ))
+                    });
+                    (id.to_string(), val.clone())
+                })
+                .collect();
+
+            // Force each field individually.
+            let mut entries: Vec<(String, Value)> = field_data
+                .into_iter()
+                .map(|(name, val)| (name, nickel_to_nix_forcing(vm_ctxt, val)))
+                .collect();
+            entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+            let refs: Vec<(&str, Value)> =
+                entries.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+            Value::make_attrset(&refs)
+        }
+        ValueContentRef::ForeignId(id) => {
+            let id = *id;
+            if id > u32::MAX as u64 {
+                nix_wasm_rust::panic(&format!(
+                    "nickel_to_nix_forcing: ForeignId({id}) exceeds u32::MAX"
+                ));
+            }
+            Value::from_raw(id as u32)
+        }
+        ValueContentRef::EnumVariant(ev) if ev.arg.is_none() => {
+            Value::make_string(ev.tag.label())
+        }
+        other => nix_wasm_rust::panic(&format!(
+            "nickel_to_nix_forcing: unexpected value variant after eval: {other:?}"
+        )),
+    }
 }
 
 /// Evaluate a Nickel file from a Nix path, returning the result as a Nix value.
