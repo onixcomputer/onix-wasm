@@ -30,4 +30,8 @@
 - To run integration tests: `cd ../nickel-wasm && nix shell nixpkgs#gcc -c bash -c 'PATH="$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin:$PATH" cargo test -p nickel-lang-core --test integration'`
 - dev-dependencies in nickel-wasm core/Cargo.toml are stripped by default.nix postUnpack (nickel-lang-utils not vendored)
 - Also fixed: $array and $array_dyn had same %typeof% guard issue — removed in same pattern
-- Remaining onix-modules failures (16/35) are from %record/merge_contract% forcing through shared CacheHub stdlib thunks — deeper than the %typeof% guards, requires evaluator-level fix
+- Remaining onix-modules failures (16/35): NOT from %typeof% guards, NOT from merge_contract directly
+- Root cause: the shim does `validated = mod.interface.roles.X & user_settings` (merge with contracts) in the SAME evaluation as `mod.impl { settings = validated, upstream = ..., ... }`. The merge attaches pending contracts from the interface to `validated`. When `impl` forces those contracts while also forcing through stdlib helpers (exports.first_result etc.), both paths hit the same CacheHub thunks → blackhole
+- Confirmed: simplified reproduction without the `validated` merge works fine
+- Best fix: split settings validation into a separate WASM call. Serialize validated settings back to Nix, then pass as plain literal args to the impl call. This isolates CacheHub state between the two evaluation phases
+- Alternative: pre-force validated settings to Nix within the same WASM call before passing to impl (using nickel_to_nix round-trip)
