@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: nickel-wasm-josh-sync-config
+        name: nickel-wasm Josh sync config
+        entry: bash -c 'system="$(nix eval --raw --impure --expr builtins.currentSystem)"; nix build ".#checks.${system}.nickel-wasm-josh-sync-config" --no-link'
+        language: system
+        pass_filenames: false
+        files: '^(flake\.nix|flake\.lock|josh/nickel-wasm\.josh|scripts/check-nickel-wasm-josh-sync\.rs)$'

@@ -4,7 +4,9 @@
 - WASM target: `nix build` (builds all plugins via default.nix)
 - Dev check: `nix develop --command bash -c 'cargo check --target wasm32-unknown-unknown -p nickel-plugin'`
 - If rustup ld wrappers are stale: `rustup toolchain install stable --force`
-- Vendor dir comes from `nickel-wasm-vendor` flake input, set up in `default.nix` `postUnpack`
+- Vendor dir comes from `nickel-wasm-vendor` flake input, set up in `default.nix` `postUnpack`.
+- `josh/nickel-wasm.josh` is the local Josh filter for `../nickel-wasm/{core,parser,vector}`. Run `nix shell nixpkgs#rustc nixpkgs#gcc -c rustc --edition=2024 scripts/check-nickel-wasm-josh-sync.rs -o /tmp/check-nickel-wasm-josh-sync && /tmp/check-nickel-wasm-josh-sync --source-repo ../nickel-wasm` to verify the ignored local `vendor/` snapshot against the locked flake revision.
+- `.pre-commit-config.yaml` intentionally runs only the focused local Nix check for the Josh filter, verifier unit tests, and `flake.lock` metadata. Do not make pre-commit require GitHub or a sibling `../nickel-wasm` checkout.
 
 ## Testing
 - Need onix nix fork (onixcomputer/nix at /home/brittonr/git/nix) for `builtins.wasm` + string context ABI

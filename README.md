@@ -40,5 +40,8 @@ never serialized -- `nickel_to_nix` recovers the original Nix value via
 nix build  # produces .wasm files in result/
 ```
 
-Requires the `nickel-wasm-vendor` input (vendored nickel-lang-core
-patched for wasm32).
+Requires the `nickel-wasm-vendor` input (vendored Nickel crates patched for wasm32).
+
+## Nickel vendor sync
+
+`josh/nickel-wasm.josh` is the local Josh path-selection pilot for the Nickel crates copied from the sibling `../nickel-wasm` checkout. The ignored local `vendor/` tree can be refreshed and verified with `scripts/check-nickel-wasm-josh-sync.rs`; see `docs/nickel-wasm-josh-sync.md`. The pre-commit hook runs only the local config check and does not require GitHub or a sibling checkout.
