@@ -8,7 +8,7 @@ use nix_wasm_rust::Value;
 // LALRPOP parsing per invocation.
 // ---------------------------------------------------------------------------
 
-use std::cell::RefCell;
+use std::cell::OnceCell;
 use std::sync::Arc;
 
 use nickel_lang_core::cache::{CacheHub, InputFormat, SourceIO, SourcePath};
@@ -27,7 +27,7 @@ struct PreparedStdlib {
 }
 
 thread_local! {
-    static STDLIB_CACHE: RefCell<Option<PreparedStdlib>> = RefCell::new(None);
+    static STDLIB_CACHE: OnceCell<PreparedStdlib> = const { OnceCell::new() };
 }
 
 /// No-op SourceIO for string-based evaluations that don't need filesystem access.
@@ -60,32 +60,33 @@ impl SourceIO for NoopSourceIO {
     }
 }
 
-/// Get a CacheHub with the stdlib already prepared. On first call, creates
-/// the cache and runs prepare_stdlib. On subsequent calls, returns
-/// clone_for_eval() with the given IO provider swapped in.
+/// Prepare only the immutable stdlib template, without an evaluation clone.
+fn prepare_stdlib() -> PreparedStdlib {
+    let mut cache = CacheHub::new();
+    let mut pos_table = PosTable::new();
+    cache
+        .prepare_stdlib(&mut pos_table)
+        .unwrap_or_else(|e| nix_wasm_rust::panic(&format!("stdlib init failed: {e:?}")));
+    PreparedStdlib { cache, pos_table }
+}
+
+/// Clone the prepared stdlib and positions with a fresh IO provider.
 fn get_prepared_cache(io: Arc<dyn SourceIO>) -> (CacheHub, PosTable) {
     STDLIB_CACHE.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        if slot.is_none() {
-            let mut cache = CacheHub::new();
-            let mut pos_table = PosTable::new();
-            cache
-                .prepare_stdlib(&mut pos_table)
-                .unwrap_or_else(|e| nix_wasm_rust::panic(&format!("stdlib init failed: {e:?}")));
-            *slot = Some(PreparedStdlib { cache, pos_table });
-        }
-        let prepared = slot.as_ref().unwrap();
+        let prepared = cell.get_or_init(prepare_stdlib);
         let mut cloned = prepared.cache.clone_for_eval();
         cloned.sources.io = io;
         (cloned, prepared.pos_table.clone())
     })
 }
 
-/// Build-time constructor for the optional preinitialized plugin image.
+/// Build-time constructor for the preinitialized plugin image.
 /// No user source, Nix values, file base, or host capability enters this cache.
 #[no_mangle]
 pub extern "C" fn prepareNickelStdlib() {
-    let _ = get_prepared_cache(Arc::new(NoopSourceIO));
+    STDLIB_CACHE.with(|cell| {
+        cell.get_or_init(prepare_stdlib);
+    });
 }
 
 /// Core evaluation: add source to a prepared CacheHub, prepare without

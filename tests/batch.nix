@@ -83,6 +83,25 @@ assert
     2
     3
   ];
+# Stdlib closures must remain independent across evaluation-cache clones.
+assert
+  evalMany [
+    "std.array.map (fun value => value + 1) [1, 2]"
+    "std.array.map (fun value => value * value) [1, 2]"
+  ] == [
+    [
+      2
+      3
+    ]
+    [
+      1
+      4
+    ]
+  ];
+assert rejects (evalMany [
+  "std.array.map (fun value => value + 1) [1]"
+  "std.array.map (fun value => value + 1) [\"wrong\"]"
+]);
 assert rejects (evalMany [
   "1"
   "1 | String"

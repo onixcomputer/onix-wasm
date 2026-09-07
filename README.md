@@ -226,6 +226,32 @@ Measured initialized package: `/nix/store/4aybqsf0gjiscainnlsssrnbqsrcccyf-nix-w
 Initialized Nickel BLAKE3: `0abd65136629edfd03a5fc19ed0f6324ab8f753706ba8e4866e9bfd03290d21e`.
 Wizer comes from the existing locked nixpkgs input. No unpinned runtime tool is required.
 
+### Constructor-only follow-up (2026-09-06)
+
+The constructor now initializes a `OnceCell` without an evaluation-cache clone.
+Previously, it created and discarded that clone before Wizer captured memory.
+Runtime evaluations still clone the cache and position table, then install a fresh IO provider.
+
+The initialized module decreased from 5,703,567 to 5,653,812 bytes, a reduction of 49,755 bytes.
+This is a small artifact-size improvement, not a demonstrated evaluation speedup.
+The 500-call comparison used the same host, exact output assertions, one warmup, and three measured processes per image.
+
+| Order | Previous image | Constructor-only image |
+|---|---|---|
+| Previous first | 5.459 ± 2.039 seconds | 6.160 ± 2.004 seconds |
+| Constructor-only first | 4.779 ± 0.657 seconds | 4.169 ± 0.898 seconds |
+
+The timing order reversed the apparent winner. The uncertainties are sample standard deviations.
+These results do not support a stable runtime speedup or regression claim.
+No build-time or peak-memory improvement is established by this comparison.
+
+The full flake checks passed before and after the change.
+They include deterministic snapshots, forbidden host calls, and both raw and initialized images.
+Additional positive and negative cases cover repeated stdlib closures and invalid array elements.
+
+Measured package: `/nix/store/k4lc5q94gbn1927b0by7zasmgvihsmjw-nix-wasm-plugins-preinitialized`.
+Nickel BLAKE3: `aeffa9479c7f12af9c80c3a31f706a62bb3249ee8bf260ba1a551b31cdcc66b6`.
+
 ## Nickel vendor sync
 
 `josh/nickel-wasm.josh` is the local Josh path-selection pilot for the Nickel crates copied from the sibling `../nickel-wasm` checkout. The ignored local `vendor/` tree can be refreshed and verified with `scripts/check-nickel-wasm-josh-sync.rs`; see `docs/nickel-wasm-josh-sync.md`. The pre-commit hook runs only the local config check and does not require GitHub or a sibling checkout.
