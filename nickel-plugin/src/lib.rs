@@ -81,6 +81,13 @@ fn get_prepared_cache(io: Arc<dyn SourceIO>) -> (CacheHub, PosTable) {
     })
 }
 
+/// Build-time constructor for the optional preinitialized plugin image.
+/// No user source, Nix values, file base, or host capability enters this cache.
+#[no_mangle]
+pub extern "C" fn prepareNickelStdlib() {
+    let _ = get_prepared_cache(Arc::new(NoopSourceIO));
+}
+
 /// Core evaluation: add source to a prepared CacheHub, prepare without
 /// typechecking, build VM with stdlib env from TermCache, evaluate, convert.
 fn eval_with_cache(source: &str, cache: CacheHub, pos_table: PosTable) -> Value {

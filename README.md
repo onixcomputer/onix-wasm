@@ -40,7 +40,7 @@ wasm.evalNickelWithBatch [
 # => [ 2 3 ]
 ```
 
-A batch shares standard-library preparation within one Wasm instance.
+A batch uses one prepared standard-library cache within one Wasm instance.
 Each request still gets a fresh Nickel evaluation cache and import provider.
 Bindings and imported files do not carry over between requests.
 Opaque Nix values and string contexts retain their existing behavior.
@@ -129,6 +129,8 @@ No new host capability or system service is involved, so direct evaluator tests 
 
 ### Measured result (2026-09-06)
 
+These batch measurements used the raw plugin before preinitialization became the default.
+They do not establish the incremental batch benefit on the current default image.
 For 500 small function evaluations, both benchmark orders favored the batch.
 Each row used one warmup and three measured processes per mode on the same x86_64-linux host.
 Every process asserted exact result equality.
@@ -171,6 +173,58 @@ Plugin source inputs include only the workspace manifests and the four plugin/bi
 The pinned vendor input supplies the Nickel crates separately.
 Documentation, Nix wrappers, and test fixtures do not invalidate the plugin build.
 The `plugin-source-scope` check verifies included and excluded paths.
+
+## Build-time standard-library preparation
+
+The default `wasm-plugins` package now uses a preinitialized Nickel image.
+Wizer 10.0.0 runs `prepareNickelStdlib` during the build and snapshots its memory.
+The existing `evalNickel`, file, batch, and map APIs consume that image without caller changes.
+Every Wasm call still starts a fresh instance. User sources and arguments never enter the build-time cache.
+
+The build enables no WASI, environment inheritance, standard streams, directory mappings, or preload stubs for the guest.
+Wizer rejects imported host calls during initialization.
+Its host-side compilation cache stays inside the temporary build directory.
+A timeout bounds the constructor step. The build verifies that Wizer removed the constructor export.
+The runtime panic hook remains in `nix_wasm_init_v1` and runs normally.
+
+Package variants:
+
+- `wasm-plugins` and `default`: the preinitialized image.
+- `wasm-plugins-preinitialized`: an explicit alias for that image.
+- `wasm-plugins-uninitialized`: the raw plugin for comparisons and debugging.
+
+`nix flake check -L` runs the same single-call, batch, and map controls against both images.
+A separate check repeats initialization and compares the complete output bytes.
+It also verifies unchanged YAML/INI binaries and rejects a constructor that calls an imported function.
+Binaryen constructor evaluation was rejected because it stopped at `memory.grow` with a successful exit status.
+Wizer completes the initialization instead of retaining partially evaluated code.
+
+### Preinitialization measurements (2026-09-06)
+
+The workload uses individual `evalNickelWith` calls, not the batch API.
+Each timing uses one warmup and three measured processes, with exact output assertions.
+
+| Calls | Raw image | Preinitialized image |
+|---|---|---|
+| 1 | 5.769 ± 1.760 seconds | 3.647 ± 0.144 seconds |
+| 500 | 18.727 ± 2.319 seconds | 7.655 ± 0.618 seconds |
+| 500, reverse order | 20.083 ± 3.990 seconds | 15.990 ± 9.065 seconds |
+
+The first 500-call comparison reduced mean user CPU time from 12.494 to 3.397 seconds.
+The reverse-order comparison reduced it from 12.971 to 4.497 seconds, despite substantial elapsed-time variance.
+The uncertainties are sample standard deviations. Shared-host load varied, and Hyperfine reported outliers.
+These measurements do not establish a universal speedup, and ratios from earlier batch benchmarks must not be multiplied by these ratios.
+
+One direct GNU Time probe at 500 calls reported peak RSS of 263,564 KiB for the raw image and 257,884 KiB for the initialized image.
+This is one workload observation, not a general memory guarantee.
+The Nickel module increased from 3,880,876 to 5,703,567 bytes.
+The build adds a snapshot step. It does not make Rust compilation faster or remove native Wasm compilation from evaluation startup.
+
+Measured host: `/nix/store/6rwk5j1qqk7na4la5m2ka34p734braxa-nix-2.36.0/bin/nix`.
+Measured raw package: `/nix/store/7qwrdslhgl2fdyqbwjkp27ii74p87wjx-nix-wasm-plugins-0.1.0`.
+Measured initialized package: `/nix/store/4aybqsf0gjiscainnlsssrnbqsrcccyf-nix-wasm-plugins-preinitialized`.
+Initialized Nickel BLAKE3: `0abd65136629edfd03a5fc19ed0f6324ab8f753706ba8e4866e9bfd03290d21e`.
+Wizer comes from the existing locked nixpkgs input. No unpinned runtime tool is required.
 
 ## Nickel vendor sync
 

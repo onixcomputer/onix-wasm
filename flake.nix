@@ -38,13 +38,15 @@
     in
     {
       packages = forAllSystems (
-        { pkgs, ... }:
+        { pkgs, system, ... }:
         {
-          default = pkgs.callPackage ./default.nix {
+          default = self.packages.${system}.wasm-plugins;
+          wasm-plugins = self.packages.${system}.wasm-plugins-preinitialized;
+          wasm-plugins-uninitialized = pkgs.callPackage ./default.nix {
             inherit nickel-wasm-vendor;
           };
-          wasm-plugins = pkgs.callPackage ./default.nix {
-            inherit nickel-wasm-vendor;
+          wasm-plugins-preinitialized = pkgs.callPackage ./nix/preinitialize.nix {
+            plugins = self.packages.${system}.wasm-plugins-uninitialized;
           };
         }
       );
@@ -60,32 +62,27 @@
       checks = forAllSystems (
         { pkgs, system, ... }:
         {
-          nickel-batch =
-            pkgs.runCommand "nickel-batch"
-              {
-                nativeBuildInputs = [ nix-wasm-host.packages.${system}.nix-cli ];
-              }
-              ''
-                export HOME="$TMPDIR/home"
-                mkdir -p "$HOME"
-                export NIX_CONFIG="experimental-features = nix-command wasm-builtin"
-                nix eval --store "$TMPDIR/store" --json --impure --file ${self}/tests/batch.nix \
-                  --apply 'f: f { plugins = ${self.packages.${system}.wasm-plugins}; }' > single.json
-                nix eval --store "$TMPDIR/store" --json --impure --file ${self}/tests/batch.nix \
-                  --apply 'f: f { plugins = ${self.packages.${system}.wasm-plugins}; batch = true; }' > batch.json
-                grep -qx true single.json
-                grep -qx true batch.json
-                nix eval --store "$TMPDIR/store" --json --impure --file ${self}/tests/map.nix \
-                  --apply 'f: f { plugins = ${self.packages.${system}.wasm-plugins}; }' > map-baseline.json
-                nix eval --store "$TMPDIR/store" --json --impure --file ${self}/tests/map.nix \
-                  --apply 'f: f { plugins = ${self.packages.${system}.wasm-plugins}; prepared = true; }' > map.json
-                grep -qx true map-baseline.json
-                grep -qx true map.json
-                touch "$out"
-              '';
+          nickel-batch = pkgs.callPackage ./nix/check-plugin.nix {
+            name = "nickel-batch";
+            source = self;
+            nixHost = nix-wasm-host.packages.${system}.nix-cli;
+            plugins = self.packages.${system}.wasm-plugins-uninitialized;
+          };
+          nickel-preinitialized = pkgs.callPackage ./nix/check-plugin.nix {
+            name = "nickel-preinitialized";
+            source = self;
+            nixHost = nix-wasm-host.packages.${system}.nix-cli;
+            plugins = self.packages.${system}.wasm-plugins-preinitialized;
+          };
+
+          nickel-preinitialization-controls = pkgs.callPackage ./nix/check-preinitialize.nix {
+            plugins = self.packages.${system}.wasm-plugins-uninitialized;
+            initialized = self.packages.${system}.wasm-plugins-preinitialized;
+            forbiddenConstructor = ./tests/preinit-external.wat;
+          };
 
           plugin-source-scope = pkgs.runCommand "plugin-source-scope" { } ''
-            source=${self.packages.${system}.wasm-plugins.src}
+            source=${self.packages.${system}.wasm-plugins-uninitialized.src}
             test -f "$source/Cargo.toml"
             test -f "$source/Cargo.lock"
             for crate in nix-wasm-rust nickel-plugin yaml-plugin ini-plugin; do
