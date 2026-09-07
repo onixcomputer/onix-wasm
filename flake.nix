@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    crane.url = "github:ipetkov/crane/b556d7bbae5ff86e378451511873dfd07e4504cd";
     # Verified host ABI, including string-context admission checks.
     nix-wasm-host.url = "github:onixcomputer/nix/388dea6acc4d45c7d47c9debcc105435ed0a995e";
     nickel-wasm-vendor = {
@@ -15,6 +16,7 @@
     {
       self,
       nixpkgs,
+      crane,
       nickel-wasm-vendor,
       nix-wasm-host,
       ...
@@ -44,6 +46,7 @@
           wasm-plugins = self.packages.${system}.wasm-plugins-preinitialized;
           wasm-plugins-uninitialized = pkgs.callPackage ./default.nix {
             inherit nickel-wasm-vendor;
+            craneLib = crane.mkLib pkgs;
           };
           wasm-plugins-preinitialized = pkgs.callPackage ./nix/preinitialize.nix {
             plugins = self.packages.${system}.wasm-plugins-uninitialized;
@@ -79,6 +82,10 @@
             plugins = self.packages.${system}.wasm-plugins-uninitialized;
             initialized = self.packages.${system}.wasm-plugins-preinitialized;
             forbiddenConstructor = ./tests/preinit-external.wat;
+          };
+
+          plugin-dependency-cache = pkgs.callPackage ./nix/check-dependency-cache.nix {
+            plugins = self.packages.${system}.wasm-plugins-uninitialized;
           };
 
           plugin-source-scope = pkgs.runCommand "plugin-source-scope" { } ''

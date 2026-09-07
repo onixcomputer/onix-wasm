@@ -174,6 +174,59 @@ The pinned vendor input supplies the Nickel crates separately.
 Documentation, Nix wrappers, and test fixtures do not invalidate the plugin build.
 The `plugin-source-scope` check verifies included and excluded paths.
 
+## Reusable Rust dependency builds
+
+The flake uses [Crane](https://github.com/ipetkov/crane/tree/b556d7bbae5ff86e378451511873dfd07e4504cd) to build and retain Cargo dependency artifacts.
+The Crane input is pinned to that immutable revision. The existing Rust toolchain and Wasm target remain unchanged.
+
+The dependency stage replaces the four plugin workspace members with stubs.
+Both stages then add the real Nickel sources from the locked vendor input.
+The plugin stage restores the dependency artifacts before it compiles the real plugin code.
+No user Cargo configuration or sibling checkout supplies this cache.
+
+The measured plugin-source change left the dependency derivation unchanged.
+Cargo manifests, the lockfile, the vendor pin, build commands, and toolchain inputs remain part of its identity.
+The vendor copy preserves file timestamps. Deterministic manifest patches restore those timestamps after each patch.
+Without this step, Cargo treats the copied files as new inputs and recompiles Nickel despite the restored artifacts.
+
+The first build adds a dependency stage and an artifact archive. It is not a cold-build optimization.
+The measured compressed archive occupied 123,848,445 bytes.
+The final plugin package contains no Cargo artifact archive.
+Direct `default.nix` callers retain the legacy builder when they omit `craneLib`.
+
+The flake checks inspect the artifact archive and require compiled Nickel core and parser libraries.
+They also reject real plugin code in the stub source and a temporary probe export in the release module.
+The normal runtime checks still cover both raw and preinitialized images.
+
+### Changed-source build measurement (2026-09-06)
+
+A temporary `dependencyCacheProbe` export changed the Nickel plugin source.
+Both builds consumed `/nix/store/3clh65s4l4ybbczghlnn41wk5irk27lw-source`.
+The cached build used the retained dependency artifacts. The comparison used the legacy builder with `craneLib = null`.
+
+| Build mode | Cargo release phase |
+|---|---|
+| Legacy, without retained artifacts | 3 minutes 47 seconds |
+| Cached dependencies | 23.57 seconds |
+
+These are single-run Cargo phase times on the shared build host, not total Nix command times or a universal ratio.
+The cached build compiled only `nix-wasm-rust`, `nickel-plugin`, `yaml-plugin`, and `ini-plugin`.
+It reused the registry dependencies and all three Nickel vendor crates.
+The first dependency stage took 3 minutes 58 seconds and remains a one-time cost for this dependency identity.
+
+`tests/dependency-probe.nix` accepted the new export in both outputs and rejected the original module without that export.
+Thus the comparison did not measure a no-op build or an unchanged plugin.
+The two output binaries had different hashes. The checks establish behavior, not byte identity between build methods.
+The release source excludes the temporary export.
+
+The dependency derivation remained `/nix/store/f8zq7584r30w5hgsds47n7wdhx6bk92p-nix-wasm-plugins-deps-0.1.0.drv` before and after the source probe.
+A temporary Cargo profile change from `"z"` to `"s"` produced `/nix/store/s3p1sby0xw28c37k9z8qn53zr7kannji-nix-wasm-plugins-deps-0.1.0.drv`.
+The release profile remains `"z"`. Runtime checks passed on x86_64-linux, and flake evaluation passed for all four declared systems.
+This work establishes no new evaluation speedup.
+
+Verified release package: `/nix/store/8j2p1igj1zysgg5k8fcbcqcs3rz8dvnp-nix-wasm-plugins-preinitialized`.
+Nickel BLAKE3: `901c34a86092bec1cd2178f01eadda3a0015f8aae732bc6f16d299afd179c0fa`.
+
 ## Build-time standard-library preparation
 
 The default `wasm-plugins` package now uses a preinitialized Nickel image.

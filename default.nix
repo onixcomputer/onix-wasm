@@ -9,60 +9,64 @@
   lld,
   binaryen,
   nickel-wasm-vendor,
+  craneLib ? null,
 }:
-rustPlatform.buildRustPackage {
-  pname = "nix-wasm-plugins";
-  version = "0.1.0";
+let
+  common = {
+    pname = "nix-wasm-plugins";
+    version = "0.1.0";
 
-  # Documentation, wrappers, and fixtures do not affect the plugin binaries.
-  # Nickel vendor sources enter separately through nickel-wasm-vendor below.
-  src = lib.fileset.toSource {
-    root = ./.;
-    fileset = lib.fileset.unions [
-      ./Cargo.toml
-      ./Cargo.lock
-      ./nix-wasm-rust
-      ./nickel-plugin
-      ./yaml-plugin
-      ./ini-plugin
+    # Documentation, wrappers, and fixtures do not affect the plugin binaries.
+    # Nickel vendor sources enter separately through nickel-wasm-vendor below.
+    src = lib.fileset.toSource {
+      root = ./.;
+      fileset = lib.fileset.unions [
+        ./Cargo.toml
+        ./Cargo.lock
+        ./nix-wasm-rust
+        ./nickel-plugin
+        ./yaml-plugin
+        ./ini-plugin
+      ];
+    };
+
+    postUnpack = ''
+      mkdir -p $sourceRoot/vendor
+      # Cargo compares source timestamps with the restored dependency artifacts.
+      cp -r --preserve=timestamps ${nickel-wasm-vendor}/core   $sourceRoot/vendor/nickel-lang-core
+      cp -r --preserve=timestamps ${nickel-wasm-vendor}/parser $sourceRoot/vendor/nickel-lang-parser
+      cp -r --preserve=timestamps ${nickel-wasm-vendor}/vector $sourceRoot/vendor/nickel-lang-vector
+      chmod -R u+w $sourceRoot/vendor
+
+      # Fix inter-crate paths: monorepo layout (../parser) -> vendor layout (../nickel-lang-parser)
+      substituteInPlace $sourceRoot/vendor/nickel-lang-core/Cargo.toml \
+        --replace-fail 'path = "../parser"'  'path = "../nickel-lang-parser"' \
+        --replace-fail 'path = "../vector"'  'path = "../nickel-lang-vector"'
+      substituteInPlace $sourceRoot/vendor/nickel-lang-parser/Cargo.toml \
+        --replace-fail 'path = "../vector"'  'path = "../nickel-lang-vector"'
+
+      # Strip dev-dependencies (nickel-lang-utils etc.) — not vendored for wasm builds
+      sed -i '/^\[dev-dependencies\]/,/^\[/{/^\[dev-dependencies\]/d;/^\[/!d}' \
+        $sourceRoot/vendor/nickel-lang-core/Cargo.toml
+
+      # The same patches run in both stages. Keep their timestamps stable too.
+      # A changed vendor pin or patch still changes the dependency derivation.
+      touch -r ${nickel-wasm-vendor}/core/Cargo.toml $sourceRoot/vendor/nickel-lang-core/Cargo.toml
+      touch -r ${nickel-wasm-vendor}/parser/Cargo.toml $sourceRoot/vendor/nickel-lang-parser/Cargo.toml
+    '';
+
+    CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+
+    nativeBuildInputs = [
+      lld
+      binaryen
     ];
+
+    doCheck = false; # Runtime integration checks use the Wasm host separately.
   };
-  cargoLock.lockFile = ./Cargo.lock;
 
-  postUnpack = ''
-    mkdir -p $sourceRoot/vendor
-    cp -r ${nickel-wasm-vendor}/core   $sourceRoot/vendor/nickel-lang-core
-    cp -r ${nickel-wasm-vendor}/parser $sourceRoot/vendor/nickel-lang-parser
-    cp -r ${nickel-wasm-vendor}/vector $sourceRoot/vendor/nickel-lang-vector
-    chmod -R u+w $sourceRoot/vendor
-
-    # Fix inter-crate paths: monorepo layout (../parser) -> vendor layout (../nickel-lang-parser)
-    substituteInPlace $sourceRoot/vendor/nickel-lang-core/Cargo.toml \
-      --replace-fail 'path = "../parser"'  'path = "../nickel-lang-parser"' \
-      --replace-fail 'path = "../vector"'  'path = "../nickel-lang-vector"'
-    substituteInPlace $sourceRoot/vendor/nickel-lang-parser/Cargo.toml \
-      --replace-fail 'path = "../vector"'  'path = "../nickel-lang-vector"'
-
-    # Strip dev-dependencies (nickel-lang-utils etc.) — not vendored for wasm builds
-    sed -i '/^\[dev-dependencies\]/,/^\[/{/^\[dev-dependencies\]/d;/^\[/!d}' \
-      $sourceRoot/vendor/nickel-lang-core/Cargo.toml
-  '';
-
-  CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-
-  nativeBuildInputs = [
-    lld
-    binaryen
-  ];
-
-  buildPhase = ''
-    cargo build --release --target wasm32-unknown-unknown
-  '';
-
-  checkPhase = ""; # no host tests for wasm targets
-  doCheck = false;
-
-  installPhase = ''
+  buildCommand = "cargo build --release --target wasm32-unknown-unknown --locked";
+  installPlugins = ''
     mkdir -p $out
     for f in target/wasm32-unknown-unknown/release/*.wasm; do
       [ -f "$f" ] || continue
@@ -79,4 +83,30 @@ rustPlatform.buildRustPackage {
       esac
     done
   '';
-}
+
+  cached = common // {
+    cargoVendorDir = craneLib.vendorCargoDeps { cargoLock = ./Cargo.lock; };
+    buildPhaseCargoCommand = buildCommand;
+  };
+  # Only the plugin workspace members become stubs. postUnpack adds the real,
+  # pinned Nickel sources to both stages, so their compilation can be reused.
+  cargoArtifacts = craneLib.buildDepsOnly cached;
+in
+if craneLib == null then
+  rustPlatform.buildRustPackage (
+    common
+    // {
+      cargoLock.lockFile = ./Cargo.lock;
+      buildPhase = buildCommand;
+      installPhase = installPlugins;
+    }
+  )
+else
+  craneLib.mkCargoDerivation (
+    cached
+    // {
+      inherit cargoArtifacts;
+      doInstallCargoArtifacts = false;
+      installPhaseCommand = installPlugins;
+    }
+  )
