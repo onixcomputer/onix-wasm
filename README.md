@@ -10,7 +10,7 @@ inside the Nix evaluator via wasmtime. No IFD, no JSON round-trip.
 
 | Plugin | Entry points | Description |
 |--------|-------------|-------------|
-| `nickel_plugin.wasm` | `evalNickel`, `evalNickelFile`, `evalNickelFileWith`, `evalNickelWith`, `evalNickelBatch`, `evalNickelWithBatch` | Nickel evaluator with ForeignId passthrough |
+| `nickel_plugin.wasm` | `evalNickel`, `evalNickelFile`, `evalNickelFileWith`, `evalNickelWith`, `evalNickelBatch`, `evalNickelWithBatch`, `evalNickelMap` | Nickel evaluator with ForeignId passthrough |
 | `yaml_plugin.wasm` | `fromYAML`, `toYAML` | YAML parser/serializer |
 | `ini_plugin.wasm` | `fromINI` | INI parser |
 
@@ -55,10 +55,65 @@ Batch size is caller-controlled. Large batches retain Nix value handles until th
 This change does not reuse live instances between calls or remove module compilation across processes.
 It targets evaluation overhead, not the compilation time of derivations.
 
+### Repeated applications of one source
+
+`evalNickelMap source args` prepares one source once and applies it to each argument in the list.
+`evalNickelMapImport source args base` also supplies a file-import base, with the same interpretation as `evalNickelWithImport`.
+
+```nix
+wasm.evalNickelMap "fun args => args.value + 1" [
+  { value = 1; }
+  { value = 2; }
+]
+# => [ 2 3 ]
+```
+
+The prepared template contains parsed and transformed source and imports, not evaluated closures.
+Each application receives a cloned template, a cloned position table, and a fresh VM.
+The template never stores result thunks or VM cache indices.
+This saves repeated parsing and preparation on top of standard-library reuse.
+An empty argument list returns an empty list without forcing the source or import base.
+A nonempty list evaluates eagerly and fails as a whole on an error.
+
+Use `evalNickelWithBatch` for different sources or import bases.
+Use `evalNickelMap` for one common source and import base.
+Both APIs keep state within one Wasm call and preserve opaque Nix handles.
+
+#### Prepared-source measurements (2026-09-06)
+
+The comparison uses the existing `evalNickelWithBatch` as its baseline, not separate Wasm calls.
+Both modes use the same source, arguments, host, and plugin.
+Each row used one warmup and three measured processes per mode, with exact result assertions.
+
+| Applications × fields | Order | Existing batch | Prepared source |
+|---|---|---|---|
+| 500 × 100 | Batch first | 5.661 ± 0.538 seconds | 4.949 ± 0.578 seconds |
+| 200 × 1,000 | Prepared first | 10.653 ± 0.591 seconds | 7.075 ± 0.973 seconds |
+| 200 × 1,000 | Batch first | 7.789 ± 2.368 seconds | 4.106 ± 0.065 seconds |
+
+The uncertainties are sample standard deviations. The shared host had variable load.
+The larger-source workload favored preparation in both orders. The smaller-source timings overlap.
+These measurements do not establish a universal speedup or lower peak memory.
+
+- Host: `/nix/store/6rwk5j1qqk7na4la5m2ka34p734braxa-nix-2.36.0/bin/nix`
+- Plugin: `/nix/store/wz4ca05sszvaw65fci410yxndlkfyj7j-nix-wasm-plugins-0.1.0/nickel_plugin.wasm`
+- Plugin BLAKE3: `b000f4d4bb8fce5c71c82458b87e0c96f164bea966f293aa4b04fa5fe024a479`
+
+```sh
+"$NIX_BINARY" eval --json --impure \
+  --extra-experimental-features 'nix-command wasm-builtin' \
+  --file tests/map-bench.nix \
+  --apply "f: f { plugins = $PLUGINS; prepared = true; requestCount = 200; fieldCount = 1000; }"
+```
+
+Set `prepared = false` for the batch baseline.
+
 ### Verification
 
 `nix flake check -L` runs the batch and individual-call controls with a pinned Wasm-capable Nix host.
 The controls cover result order, import isolation, opaque values, contracts, malformed input, and calls after errors.
+`tests/map.nix` compares prepared-source applications with the existing batch API.
+`tests/map-bench.nix` compares the same source and arguments in both modes, with an exact result assertion.
 The benchmark in `tests/batch-bench.nix` asserts exact output equality before it returns the request count.
 
 ```sh

@@ -59,6 +59,21 @@
       function = "evalNickelWithBatch";
     } requests;
 
+  # Prepare one source once, then apply it with isolated evaluation state.
+  evalNickelMap =
+    source: args:
+    builtins.wasm {
+      path = "${plugins}/nickel_plugin.wasm";
+      function = "evalNickelMap";
+    } { inherit source args; };
+
+  evalNickelMapImport =
+    source: args: base:
+    builtins.wasm {
+      path = "${plugins}/nickel_plugin.wasm";
+      function = "evalNickelMap";
+    } { inherit source args base; };
+
   # Like evalNickel but with import resolution. The source can contain
   # `import "..."`; imports resolve relative to `base`.
   #

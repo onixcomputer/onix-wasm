@@ -75,6 +75,12 @@
                   --apply 'f: f { plugins = ${self.packages.${system}.wasm-plugins}; batch = true; }' > batch.json
                 grep -qx true single.json
                 grep -qx true batch.json
+                nix eval --store "$TMPDIR/store" --json --impure --file ${self}/tests/map.nix \
+                  --apply 'f: f { plugins = ${self.packages.${system}.wasm-plugins}; }' > map-baseline.json
+                nix eval --store "$TMPDIR/store" --json --impure --file ${self}/tests/map.nix \
+                  --apply 'f: f { plugins = ${self.packages.${system}.wasm-plugins}; prepared = true; }' > map.json
+                grep -qx true map-baseline.json
+                grep -qx true map.json
                 touch "$out"
               '';
 

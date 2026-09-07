@@ -372,8 +372,18 @@ fn eval_nickel_apply_source(
     args: nickel_lang_core::eval::value::NickelValue,
     base_path: Option<Value>,
 ) -> Value {
-    use nickel_lang_core::eval::value::NickelValue;
-    use nickel_lang_core::term::{AppData, Term};
+    apply_prepared(prepare_application(source, base_path), args)
+}
+
+/// Parsed and transformed source, before any evaluation-cache indices exist.
+/// Clone this template before closurization to isolate each application.
+struct PreparedApplication {
+    cache: CacheHub,
+    pos_table: PosTable,
+    main_id: nickel_lang_core::files::FileId,
+}
+
+fn prepare_application(source: &str, base_path: Option<Value>) -> PreparedApplication {
     use std::io::Cursor;
     use std::path::PathBuf;
 
@@ -396,6 +406,26 @@ fn eval_nickel_apply_source(
     cache
         .prepare_eval_only(&mut pos_table, main_id)
         .unwrap_or_else(|e| nix_wasm_rust::panic(&format!("nickel prepare error: {e:?}")));
+
+    PreparedApplication {
+        cache,
+        pos_table,
+        main_id,
+    }
+}
+
+fn apply_prepared(
+    prepared: PreparedApplication,
+    args: nickel_lang_core::eval::value::NickelValue,
+) -> Value {
+    use nickel_lang_core::eval::value::NickelValue;
+    use nickel_lang_core::term::{AppData, Term};
+
+    let PreparedApplication {
+        cache,
+        pos_table,
+        main_id,
+    } = prepared;
 
     // Build VmContext
     let mut vm_ctxt: nickel_lang_core::eval::VmContext<
@@ -617,4 +647,36 @@ pub extern "C" fn evalNickelBatch(arg: Value) -> Value {
 #[no_mangle]
 pub extern "C" fn evalNickelWithBatch(arg: Value) -> Value {
     eval_batch(arg, evalNickelWith)
+}
+
+/// Apply one prepared source to an ordered list of arguments. The template
+/// is never evaluated: each item gets a cloned term cache and a fresh VM.
+#[no_mangle]
+pub extern "C" fn evalNickelMap(arg: Value) -> Value {
+    let args = arg
+        .get_attr("args")
+        .unwrap_or_else(|| nix_wasm_rust::panic("evalNickelMap: missing 'args' attribute"));
+    if !matches!(args.get_type(), nix_wasm_rust::Type::List) {
+        nix_wasm_rust::panic("evalNickelMap: expected a list of arguments");
+    }
+    let requests = args.get_list();
+    if requests.is_empty() {
+        return Value::make_list(&[]);
+    }
+    let source = arg
+        .get_attr("source")
+        .unwrap_or_else(|| nix_wasm_rust::panic("evalNickelMap: missing 'source' attribute"))
+        .get_string();
+    let prepared = prepare_application(&source, arg.get_attr("base"));
+    let mut results = Vec::with_capacity(requests.len());
+    for request in requests {
+        let args = nix_args_to_nickel_record(&request);
+        let fresh = PreparedApplication {
+            cache: prepared.cache.clone_for_eval(),
+            pos_table: prepared.pos_table.clone(),
+            main_id: prepared.main_id,
+        };
+        results.push(apply_prepared(fresh, args));
+    }
+    Value::make_list(&results)
 }
