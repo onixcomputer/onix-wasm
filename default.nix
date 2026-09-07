@@ -11,6 +11,7 @@
   nickel-wasm-vendor,
   craneLib ? null,
   plugin ? null,
+  sharedParserArtifacts ? false,
 }:
 let
   pluginNames = [
@@ -96,7 +97,13 @@ let
   };
   # Only the plugin workspace members become stubs. postUnpack adds the real,
   # pinned Nickel sources to both stages, so their compilation can be reused.
-  cargoArtifacts = craneLib.buildDepsOnly cached;
+  cargoArtifacts = craneLib.buildDepsOnly (
+    cached
+    // lib.optionalAttrs (plugin != null && plugin != "nickel-plugin" && !sharedParserArtifacts) {
+      pname = plugin;
+      buildPhaseCargoCommand = buildCommand + selectedBuild;
+    }
+  );
   otherPlugins = lib.filter (name: name != plugin) pluginNames;
   selectedSource = lib.fileset.toSource {
     root = ./.;
@@ -125,6 +132,7 @@ let
       -o "$out/${pluginFile}" "target/wasm32-unknown-unknown/release/${pluginFile}"
   '';
 in
+assert builtins.isBool sharedParserArtifacts;
 assert plugin == null || (craneLib != null && builtins.elem plugin pluginNames);
 if craneLib == null then
   rustPlatform.buildRustPackage (

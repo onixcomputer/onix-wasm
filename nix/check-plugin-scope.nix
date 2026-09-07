@@ -11,7 +11,14 @@ let
   ];
   rejects = args: !(builtins.tryEval ((monolithic.override args).drvPath)).success;
 in
-assert builtins.all (p: p.cargoArtifacts.drvPath == monolithic.cargoArtifacts.drvPath) variants;
+assert plugins.nickelPlugin.cargoArtifacts.drvPath == monolithic.cargoArtifacts.drvPath;
+assert plugins.iniPlugin.cargoArtifacts.drvPath != monolithic.cargoArtifacts.drvPath;
+assert plugins.yamlPlugin.cargoArtifacts.drvPath != monolithic.cargoArtifacts.drvPath;
+assert plugins.iniPlugin.cargoArtifacts.drvPath != plugins.yamlPlugin.cargoArtifacts.drvPath;
+assert
+  (plugins.iniPlugin.override { sharedParserArtifacts = true; }).cargoArtifacts.drvPath
+  == monolithic.cargoArtifacts.drvPath;
+assert rejects { sharedParserArtifacts = "false"; };
 assert rejects { plugin = "missing-plugin"; };
 assert rejects { plugin = false; };
 assert rejects {

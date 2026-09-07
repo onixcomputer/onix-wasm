@@ -189,7 +189,8 @@ Cargo manifests, the lockfile, the vendor pin, build commands, and toolchain inp
 The vendor copy preserves file timestamps. Deterministic manifest patches restore those timestamps after each patch.
 Without this step, Cargo treats the copied files as new inputs and recompiles Nickel despite the restored artifacts.
 
-The first build adds a dependency stage and an artifact archive. It is not a cold-build optimization.
+The initial combined cache added a dependency stage and an artifact archive.
+That measurement did not establish a cold-build optimization.
 The measured compressed archive occupied 123,848,445 bytes.
 The final plugin package contains no Cargo artifact archive.
 Direct `default.nix` callers retain the legacy builder when they omit `craneLib`.
@@ -263,8 +264,48 @@ The flake checks reject invalid component selectors, unwanted source dependencie
 The final Nickel module is byte-identical to the module before this split. This work establishes no new evaluation speedup.
 
 Verified bundle: `/nix/store/9p1251wx7b21sbjimwcynzxn9f1k8szi-nix-wasm-plugins-preinitialized`.
-The existing 123,848,445-byte dependency archive remains shared.
-Each isolated build restores that archive, so this change does not establish a cold-build or disk-usage improvement.
+This measurement used the shared 123,848,445-byte dependency archive.
+It did not establish a cold-build or disk-usage improvement.
+
+### Parser-specific dependency artifacts (2026-09-06)
+
+INI and YAML now build dependency artifacts for their own Cargo package selections.
+They no longer restore the full Nickel dependency archive.
+Nickel and the combined comparison build retain that full archive.
+The `sharedParserArtifacts = true` override selects the previous parser cache for controlled comparisons.
+
+The table records the archives used for the timed comparison.
+
+| Archive | Compressed bytes |
+|---|---|
+| Previous shared archive | 123,848,445 |
+| INI-only dependencies | 321,585 |
+| YAML-only dependencies | 2,363,653 |
+
+A later dependency rebuild produced 321,583 bytes for INI and 2,363,658 bytes for YAML.
+No byte-reproducibility claim applies to these intermediate Cargo archives.
+The released Wasm files retained their exact hashes after that rebuild.
+
+The archive checks require each parser library and reject Nickel or the other parser library.
+They also require matching Wasm targets and archives smaller than the full cache.
+The runtime checks passed, and all three released Wasm files remained byte-identical to the previous bundle.
+The Nickel build and snapshot derivation identities also remained unchanged.
+
+Four forced INI rebuilds used `nix build --rebuild`, with one pair in each order.
+The logs show actual Rust compilation, and Nix accepted the output reproducibility checks.
+GNU Time measured the whole Nix command, not only Cargo.
+
+| Order | Shared archive | INI-only archive |
+|---|---|---|
+| Shared first | 3.00 seconds | 2.29 seconds |
+| INI-only first | 2.11 seconds | 1.76 seconds |
+
+Both pairs favored the smaller archive. Two samples per variant do not establish a universal speedup.
+These check-mode command timings are not comparable to the earlier Cargo-only measurements.
+No YAML timing, evaluation-speed, peak-memory, or total-store-size improvement is claimed.
+The small parser archives add store entries because Nickel still needs the full archive.
+
+Verified bundle: `/nix/store/5p5f1xvv60nrqy944kxmaqih06dkq2zw-nix-wasm-plugins-preinitialized`.
 
 ## Build-time standard-library preparation
 

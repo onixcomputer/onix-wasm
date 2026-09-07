@@ -99,6 +99,10 @@
             forbiddenConstructor = ./tests/preinit-external.wat;
           };
 
+          parser-dependency-artifacts = pkgs.callPackage ./nix/check-parser-artifacts.nix {
+            plugins = self.packages.${system}.wasm-plugins-uninitialized;
+          };
+
           plugin-build-scope = pkgs.callPackage ./nix/check-plugin-scope.nix {
             plugins = self.packages.${system}.wasm-plugins-uninitialized;
             monolithic = self.packages.${system}.wasm-plugins-monolithic;
