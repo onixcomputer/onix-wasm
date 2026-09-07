@@ -4,6 +4,7 @@
 # nix fork's builtins.wasm. Output is platform-independent — the
 # same .wasm binaries run on any host architecture.
 {
+  lib,
   rustPlatform,
   lld,
   binaryen,
@@ -13,7 +14,19 @@ rustPlatform.buildRustPackage {
   pname = "nix-wasm-plugins";
   version = "0.1.0";
 
-  src = ./.;
+  # Documentation, wrappers, and fixtures do not affect the plugin binaries.
+  # Nickel vendor sources enter separately through nickel-wasm-vendor below.
+  src = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.unions [
+      ./Cargo.toml
+      ./Cargo.lock
+      ./nix-wasm-rust
+      ./nickel-plugin
+      ./yaml-plugin
+      ./ini-plugin
+    ];
+  };
   cargoLock.lockFile = ./Cargo.lock;
 
   postUnpack = ''

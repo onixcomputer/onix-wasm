@@ -591,3 +591,30 @@ pub extern "C" fn evalNickelWith(arg: Value) -> Value {
     let args_record = nix_args_to_nickel_record(&args_val);
     eval_nickel_apply_source(&user_source, args_record, base)
 }
+
+/// Evaluate requests in order within one instance. Only the prepared stdlib
+/// is shared: each request gets a fresh evaluation cache and IO provider.
+/// A trap aborts the entire batch. No partial result crosses the host boundary.
+fn eval_batch(arg: Value, evaluate: extern "C" fn(Value) -> Value) -> Value {
+    if !matches!(arg.get_type(), nix_wasm_rust::Type::List) {
+        nix_wasm_rust::panic("Nickel batch: expected a list of requests");
+    }
+    let requests = arg.get_list();
+    let mut results = Vec::with_capacity(requests.len());
+    for request in requests {
+        results.push(evaluate(request));
+    }
+    Value::make_list(&results)
+}
+
+/// Batch form of evalNickel. Accepts strings or source/base records.
+#[no_mangle]
+pub extern "C" fn evalNickelBatch(arg: Value) -> Value {
+    eval_batch(arg, evalNickel)
+}
+
+/// Batch form of evalNickelWith. Accepts source/args records with optional base.
+#[no_mangle]
+pub extern "C" fn evalNickelWithBatch(arg: Value) -> Value {
+    eval_batch(arg, evalNickelWith)
+}

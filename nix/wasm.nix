@@ -41,6 +41,24 @@
       function = "evalNickel";
     } str;
 
+  # Eager batch: returns ordered results or fails as a whole.
+  # Each request uses evalNickel's existing string or source/base shape.
+  evalNickelBatch =
+    requests:
+    builtins.wasm {
+      path = "${plugins}/nickel_plugin.wasm";
+      function = "evalNickelBatch";
+    } requests;
+
+  # Each request is { source, args, base ? ... }. Evaluation state is fresh
+  # per request, while standard-library preparation is shared by the batch.
+  evalNickelWithBatch =
+    requests:
+    builtins.wasm {
+      path = "${plugins}/nickel_plugin.wasm";
+      function = "evalNickelWithBatch";
+    } requests;
+
   # Like evalNickel but with import resolution. The source can contain
   # `import "..."`; imports resolve relative to `base`.
   #
@@ -109,12 +127,10 @@
   # Usage: wasm.evalNickelWithImport source { x = 41; } ./.
   evalNickelWithImport =
     source: args: base:
-    builtins.wasm
-      {
-        path = "${plugins}/nickel_plugin.wasm";
-        function = "evalNickelWith";
-      }
-      { inherit source args base; };
+    builtins.wasm {
+      path = "${plugins}/nickel_plugin.wasm";
+      function = "evalNickelWith";
+    } { inherit source args base; };
 
   # Parse an INI string into a nested attrset (section → key → value).
   fromINI =

@@ -10,7 +10,7 @@ inside the Nix evaluator via wasmtime. No IFD, no JSON round-trip.
 
 | Plugin | Entry points | Description |
 |--------|-------------|-------------|
-| `nickel_plugin.wasm` | `evalNickel`, `evalNickelFile`, `evalNickelFileWith`, `evalNickelWith` | Nickel evaluator with ForeignId passthrough |
+| `nickel_plugin.wasm` | `evalNickel`, `evalNickelFile`, `evalNickelFileWith`, `evalNickelWith`, `evalNickelBatch`, `evalNickelWithBatch` | Nickel evaluator with ForeignId passthrough |
 | `yaml_plugin.wasm` | `fromYAML`, `toYAML` | YAML parser/serializer |
 | `ini_plugin.wasm` | `fromINI` | INI parser |
 
@@ -27,6 +27,76 @@ let wasm = onix-wasm.lib.${system}; in
 }
 ```
 
+## Batch evaluation
+
+`evalNickelBatch` accepts a list of inputs with the same shape as `evalNickel`.
+`evalNickelWithBatch` accepts records with `source`, `args`, and optional `base` fields.
+
+```nix
+wasm.evalNickelWithBatch [
+  { source = "fun args => args.value + 1"; args.value = 1; }
+  { source = "fun args => args.value + 1"; args.value = 2; }
+]
+# => [ 2 3 ]
+```
+
+A batch shares standard-library preparation within one Wasm instance.
+Each request still gets a fresh Nickel evaluation cache and import provider.
+Bindings and imported files do not carry over between requests.
+Opaque Nix values and string contexts retain their existing behavior.
+
+A batch evaluates every request in order before it returns the result list.
+An error aborts the whole batch without a partial result.
+This differs from a lazy Nix `map`: even an unselected result can cause the batch to fail.
+Use individual calls for independent error recovery or lazy result selection.
+An empty batch returns an empty list without standard-library preparation.
+
+Batch size is caller-controlled. Large batches retain Nix value handles until the call ends.
+This change does not reuse live instances between calls or remove module compilation across processes.
+It targets evaluation overhead, not the compilation time of derivations.
+
+### Verification
+
+`nix flake check -L` runs the batch and individual-call controls with a pinned Wasm-capable Nix host.
+The controls cover result order, import isolation, opaque values, contracts, malformed input, and calls after errors.
+The benchmark in `tests/batch-bench.nix` asserts exact output equality before it returns the request count.
+
+```sh
+"$NIX_BINARY" eval --json --impure \
+  --extra-experimental-features 'nix-command wasm-builtin' \
+  --file tests/batch-bench.nix \
+  --apply "f: f { plugins = $PLUGINS; batch = true; requestCount = 20; }"
+```
+
+Use `batch = false` for the individual-call comparison with the same host and plugin.
+Both modes include module compilation once per process.
+No new host capability or system service is involved, so direct evaluator tests cover this change without a VM.
+
+### Measured result (2026-09-06)
+
+For 500 small function evaluations, both benchmark orders favored the batch.
+Each row used one warmup and three measured processes per mode on the same x86_64-linux host.
+Every process asserted exact result equality.
+
+| Order | Individual calls | Batch |
+|---|---|---|
+| Batch first | 21.940 ± 3.556 seconds | 4.933 ± 0.890 seconds |
+| Individual first | 19.167 ± 1.245 seconds | 7.299 ± 0.693 seconds |
+
+The uncertainties are sample standard deviations.
+The shared host had variable load. These results do not establish a universal speedup or a benefit for single requests.
+Initial probes at 1, 20, and 100 requests had substantial variance.
+Batching retains result handles for the entire call, so this result is not a peak-memory guarantee.
+
+Measured artifacts:
+
+- Host: `/nix/store/6rwk5j1qqk7na4la5m2ka34p734braxa-nix-2.36.0/bin/nix`
+- Plugin: `/nix/store/0y2y4wvfa22w51gq42lsbk8840b16jfl-nix-wasm-plugins-0.1.0/nickel_plugin.wasm`
+- Plugin BLAKE3: `8efba1d5b32bc1353844b58674f1267e596d425edc1acb5bc172140ca6d25f3f`
+
+The plugin derivation stayed at `b3zyyg16bhggzkx0hir3i6mgrr4r2vxy` after documentation and check-definition changes.
+The source-scope change avoids those rebuilds rather than making Rust compilation faster.
+
 ## ForeignId passthrough
 
 Nix values that aren't simple data types (functions, paths, derivations)
@@ -41,6 +111,11 @@ nix build  # produces .wasm files in result/
 ```
 
 Requires the `nickel-wasm-vendor` input (vendored Nickel crates patched for wasm32).
+
+Plugin source inputs include only the workspace manifests and the four plugin/binding crates.
+The pinned vendor input supplies the Nickel crates separately.
+Documentation, Nix wrappers, and test fixtures do not invalidate the plugin build.
+The `plugin-source-scope` check verifies included and excluded paths.
 
 ## Nickel vendor sync
 
