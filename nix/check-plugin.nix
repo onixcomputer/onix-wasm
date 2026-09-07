@@ -23,6 +23,9 @@ runCommand name
       --apply 'f: f { plugins = ${plugins}; prepared = true; }' > map.json
     nix eval --store "$TMPDIR/store" --json --impure --file ${source}/tests/parsers.nix \
       --apply 'f: f { plugins = ${plugins}; }' > parsers.json
+    nix eval --store "$TMPDIR/store" --json --impure --file ${source}/tests/records.nix \
+      --apply 'f: f { plugins = ${plugins}; }' > records.json
+    grep -qx true records.json
     grep -qx true parsers.json
     grep -qx true single.json
     grep -qx true batch.json

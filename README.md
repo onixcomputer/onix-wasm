@@ -385,6 +385,33 @@ Additional positive and negative cases cover repeated stdlib closures and invali
 Measured package: `/nix/store/k4lc5q94gbn1927b0by7zasmgvihsmjw-nix-wasm-plugins-preinitialized`.
 Nickel BLAKE3: `aeffa9479c7f12af9c80c3a31f706a62bb3249ee8bf260ba1a551b31cdcc66b6`.
 
+## Rejected record-sort experiment (2026-09-07)
+
+The pinned Nix host sorts `make_attrset` results through `BindingsBuilder::finish()`.
+An experiment removed the preceding Rust string sort from `nickel_to_nix`.
+Record conversion still followed the same iterator order, and all correctness checks passed.
+This did not establish a performance benefit.
+
+The benchmark used `tests/map-bench.nix` with `prepared = true`, `requestCount = 256`, and `fieldCount = 4096`.
+It asserted exact equality for every output record.
+Each variant had one warmup and three measured processes in each order.
+
+| Order | Existing guest sort | Host-only sorting |
+|---|---|---|
+| Existing first | 7.988 ± 0.194 seconds | 13.186 ± 4.849 seconds |
+| Host-only first | 7.932 ± 0.401 seconds | 8.394 ± 0.337 seconds |
+
+The uncertainties are sample standard deviations. Shared-host load varied, and the reverse run reported outliers.
+Both mean-time comparisons favored the existing implementation. The experiment did not demonstrate a speedup, so the guest sort remains.
+The cause of the timing difference is unproven. These measurements do not establish a universal regression ratio.
+
+The new `tests/records.nix` controls remain in both raw and preinitialized flake checks.
+They cover lexical field order, empty and Unicode names, nested records, hidden fields, repeated applications, missing definitions, bad contracts, and unsupported function values.
+
+Existing package: `/nix/store/5p5f1xvv60nrqy944kxmaqih06dkq2zw-nix-wasm-plugins-preinitialized`.
+Rejected experimental package: `/nix/store/3xaf8pz6gf4hp0ipdxryz2j72k1dmp93-nix-wasm-plugins-preinitialized`.
+Measured host: `/nix/store/6rwk5j1qqk7na4la5m2ka34p734braxa-nix-2.36.0/bin/nix`.
+
 ## Nickel vendor sync
 
 `josh/nickel-wasm.josh` is the local Josh path-selection pilot for the Nickel crates copied from the sibling `../nickel-wasm` checkout. The ignored local `vendor/` tree can be refreshed and verified with `scripts/check-nickel-wasm-josh-sync.rs`; see `docs/nickel-wasm-josh-sync.md`. The pre-commit hook runs only the local config check and does not require GitHub or a sibling checkout.
