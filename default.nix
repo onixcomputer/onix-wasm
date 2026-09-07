@@ -10,8 +10,14 @@
   binaryen,
   nickel-wasm-vendor,
   craneLib ? null,
+  plugin ? null,
 }:
 let
+  pluginNames = [
+    "nickel-plugin"
+    "yaml-plugin"
+    "ini-plugin"
+  ];
   common = {
     pname = "nix-wasm-plugins";
     version = "0.1.0";
@@ -91,7 +97,35 @@ let
   # Only the plugin workspace members become stubs. postUnpack adds the real,
   # pinned Nickel sources to both stages, so their compilation can be reused.
   cargoArtifacts = craneLib.buildDepsOnly cached;
+  otherPlugins = lib.filter (name: name != plugin) pluginNames;
+  selectedSource = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.unions (
+      [
+        ./Cargo.toml
+        ./Cargo.lock
+        ./nix-wasm-rust
+        (./. + "/${plugin}")
+      ]
+      ++ map (name: ./. + "/${name}/Cargo.toml") otherPlugins
+    );
+  };
+  selectedBuild =
+    if plugin == "nickel-plugin" then
+      # Preserve the vendor feature selection used by the shared dependency build.
+      " --workspace --exclude yaml-plugin --exclude ini-plugin"
+    else
+      " --package ${plugin}";
+  pluginFile = lib.replaceStrings [ "-" ] [ "_" ] plugin + ".wasm";
+  selectedInstall = ''
+    mkdir -p "$out"
+    wasm-opt -O3 --enable-bulk-memory ${
+      lib.optionalString (plugin == "nickel-plugin") "--enable-nontrapping-float-to-int"
+    } \
+      -o "$out/${pluginFile}" "target/wasm32-unknown-unknown/release/${pluginFile}"
+  '';
 in
+assert plugin == null || (craneLib != null && builtins.elem plugin pluginNames);
 if craneLib == null then
   rustPlatform.buildRustPackage (
     common
@@ -108,5 +142,19 @@ else
       inherit cargoArtifacts;
       doInstallCargoArtifacts = false;
       installPhaseCommand = installPlugins;
+      passthru.fullSource = common.src;
+    }
+    // lib.optionalAttrs (plugin != null) {
+      pname = plugin;
+      src = selectedSource;
+      # Cargo must discover every workspace target, including unselected crates.
+      # Only their generated stubs enter this build, never their real source.
+      postUnpack =
+        common.postUnpack
+        + lib.concatMapStrings (name: ''
+          cp -r ${cargoArtifacts.src}/${name}/src "$sourceRoot/${name}/src"
+        '') otherPlugins;
+      buildPhaseCargoCommand = buildCommand + selectedBuild;
+      installPhaseCommand = selectedInstall;
     }
   )

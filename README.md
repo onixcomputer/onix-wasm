@@ -181,7 +181,7 @@ The Crane input is pinned to that immutable revision. The existing Rust toolchai
 
 The dependency stage replaces the four plugin workspace members with stubs.
 Both stages then add the real Nickel sources from the locked vendor input.
-The plugin stage restores the dependency artifacts before it compiles the real plugin code.
+Each plugin stage restores the dependency artifacts before it compiles the real plugin code.
 No user Cargo configuration or sibling checkout supplies this cache.
 
 The measured plugin-source change left the dependency derivation unchanged.
@@ -226,6 +226,45 @@ This work establishes no new evaluation speedup.
 
 Verified release package: `/nix/store/8j2p1igj1zysgg5k8fcbcqcs3rz8dvnp-nix-wasm-plugins-preinitialized`.
 Nickel BLAKE3: `901c34a86092bec1cd2178f01eadda3a0015f8aae732bc6f16d299afd179c0fa`.
+
+### Independent plugin builds (2026-09-06)
+
+The default bundle now combines separate `nickel-plugin`, `yaml-plugin`, and `ini-plugin` packages.
+Each package includes its own implementation, the shared bindings, and all Cargo manifests.
+Other plugin implementations do not enter its source input.
+Crane supplies stubs for those unselected workspace targets so Cargo can discover their metadata.
+Each package installs only its selected Wasm file, never the cached stub modules.
+
+The Nickel build retains the vendor feature selection from the combined workspace build.
+The Wizer step now consumes only that Nickel package.
+An INI or YAML implementation change therefore leaves the Nickel build and snapshot unchanged.
+Shared bindings, manifests, the vendor pin, and toolchain changes can still invalidate multiple components.
+The `wasm-plugins-monolithic` package retains the previous combined cached build for comparisons.
+
+A temporary INI export supplied a real changed-source probe.
+The split and combined builds consumed identical INI source bytes.
+Both outputs passed the new-export control and parser checks, including malformed INI/YAML rejection and a YAML round trip.
+
+| INI source-change build | Cargo release phase |
+|---|---|
+| Combined cached workspace | 23.57 seconds |
+| Separate INI package | 0.64 seconds |
+
+These are single-run Cargo phase measurements on the shared host, not total build times or a universal ratio.
+The split build rebuilt only the INI package and the two bundle derivations.
+Cargo compiled the shared bindings and INI, not the other plugin crates.
+The build did not repeat Wizer initialization.
+The Nickel derivation remained `/nix/store/zimja979bmkjzw319i9hp7xs66ldsfas-nickel-plugin-0.1.0.drv` across the source change.
+The snapshot derivation remained `/nix/store/5ga9lb9svw2i45wcwkjxbrnxf27c8krg-nickel-plugin-preinitialized.drv`.
+
+A separate invalid-Rust control failed at compilation instead of returning a cached module.
+The release source excludes both temporary controls.
+The flake checks reject invalid component selectors, unwanted source dependencies, and probe exports in every released module.
+The final Nickel module is byte-identical to the module before this split. This work establishes no new evaluation speedup.
+
+Verified bundle: `/nix/store/9p1251wx7b21sbjimwcynzxn9f1k8szi-nix-wasm-plugins-preinitialized`.
+The existing 123,848,445-byte dependency archive remains shared.
+Each isolated build restores that archive, so this change does not establish a cold-build or disk-usage improvement.
 
 ## Build-time standard-library preparation
 

@@ -28,10 +28,12 @@ runCommand "plugin-dependency-cache"
     grep -Eq '/libnickel_lang_core-[[:xdigit:]]+\.rlib$' entries
     grep -Eq '/libnickel_lang_parser-[[:xdigit:]]+\.rlib$' entries
     test ! -e ${plugins}/target.tar.zst
-    wasm-dis ${plugins}/nickel_plugin.wasm -o plugin.wat
-    if grep -Fq '(export "dependencyCacheProbe"' plugin.wat; then
-      echo "The release plugin contains the temporary build probe" >&2
-      exit 1
-    fi
+    for pluginFile in nickel_plugin.wasm yaml_plugin.wasm ini_plugin.wasm; do
+      wasm-dis "${plugins}/$pluginFile" -o plugin.wat
+      if grep -Fq '(export "dependencyCacheProbe"' plugin.wat; then
+        echo "The release plugin contains the temporary build probe: $pluginFile" >&2
+        exit 1
+      fi
+    done
     touch "$out"
   ''

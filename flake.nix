@@ -44,9 +44,24 @@
         {
           default = self.packages.${system}.wasm-plugins;
           wasm-plugins = self.packages.${system}.wasm-plugins-preinitialized;
-          wasm-plugins-uninitialized = pkgs.callPackage ./default.nix {
+          # Retain the previous cached workspace build for controlled comparisons.
+          wasm-plugins-monolithic = pkgs.callPackage ./default.nix {
             inherit nickel-wasm-vendor;
             craneLib = crane.mkLib pkgs;
+          };
+          nickel-plugin = self.packages.${system}.wasm-plugins-monolithic.override {
+            plugin = "nickel-plugin";
+          };
+          yaml-plugin = self.packages.${system}.wasm-plugins-monolithic.override {
+            plugin = "yaml-plugin";
+          };
+          ini-plugin = self.packages.${system}.wasm-plugins-monolithic.override {
+            plugin = "ini-plugin";
+          };
+          wasm-plugins-uninitialized = pkgs.callPackage ./nix/bundle-plugins.nix {
+            nickelPlugin = self.packages.${system}.nickel-plugin;
+            yamlPlugin = self.packages.${system}.yaml-plugin;
+            iniPlugin = self.packages.${system}.ini-plugin;
           };
           wasm-plugins-preinitialized = pkgs.callPackage ./nix/preinitialize.nix {
             plugins = self.packages.${system}.wasm-plugins-uninitialized;
@@ -82,6 +97,11 @@
             plugins = self.packages.${system}.wasm-plugins-uninitialized;
             initialized = self.packages.${system}.wasm-plugins-preinitialized;
             forbiddenConstructor = ./tests/preinit-external.wat;
+          };
+
+          plugin-build-scope = pkgs.callPackage ./nix/check-plugin-scope.nix {
+            plugins = self.packages.${system}.wasm-plugins-uninitialized;
+            monolithic = self.packages.${system}.wasm-plugins-monolithic;
           };
 
           plugin-dependency-cache = pkgs.callPackage ./nix/check-dependency-cache.nix {

@@ -1,11 +1,15 @@
 # The benchmark temporarily adds a pass-through export to the plugin source.
 # This check rejects a no-op build or an output from the unchanged source.
-{ originalPlugins, changedPlugins }:
+{
+  originalPlugins,
+  changedPlugins,
+  pluginFile ? "nickel_plugin.wasm",
+}:
 let
   invoke =
     plugins:
     builtins.wasm {
-      path = "${plugins}/nickel_plugin.wasm";
+      path = "${plugins}/${pluginFile}";
       function = "dependencyCacheProbe";
     };
   expected = {
